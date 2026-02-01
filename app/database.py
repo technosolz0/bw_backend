@@ -7,7 +7,7 @@ import os
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://wb_user:Wb@7558726131@127.0.0.1:5432/wb_db"
+    "postgresql+asyncpg://wb_user:Wb%40755872631@127.0.0.1:5432/wb_db"
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False)
