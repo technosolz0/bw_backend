@@ -32,12 +32,20 @@ async def increment_daily_stats(client_id: str, date_str: str, type_str: str):
                 session.add(stats)
             
             if type_str == 'sent':
+                if stats.total_sent is None:
+                    stats.total_sent = 0
                 stats.total_sent += 1
             elif type_str == 'delivered':
+                if stats.total_delivered is None:
+                    stats.total_delivered = 0
                 stats.total_delivered += 1
             elif type_str == 'read':
+                if stats.total_read is None:
+                    stats.total_read = 0
                 stats.total_read += 1
             elif type_str == 'failed':
+                if stats.total_failed is None:
+                    stats.total_failed = 0
                 stats.total_failed += 1
                 
             await session.commit()
@@ -104,16 +112,16 @@ async def send_whatsapp_message_helper(request_body: dict):
 
         base_url = get_base_url()
         token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
-        # headers = {
-        #     "Authorization": f"Bearer {token}",
-        #     "Content-Type": "application/json",
-        # }
-
         headers = {
-            "x-access-token": token,
-            "x-waba-id": secrets.get("wabaId"),
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+
+        # headers = {
+        #     "x-access-token": token,
+        #     "x-waba-id": secrets.get("wabaId"),
+        #     "Content-Type": "application/json",
+        # }
         # JS code used INTERAKT_TOKEN from env, but secrets also has it?
         # In JS: const INTERAKT_TOKEN = process.env.INTERAKT_TOKEN;
         # But wait, utils.js doesn't return INTERAKT_TOKEN in secrets?
