@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, Float, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
 from app.database import Base
 import datetime
 
@@ -228,7 +229,7 @@ class WebhookLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     client_id = Column(String)
     type = Column(String)
-    payload = Column(JSON)
+    payload = Column(JSONB)  # Using JSONB for better PostgreSQL performance and indexing
     status = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

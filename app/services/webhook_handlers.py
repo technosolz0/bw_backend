@@ -12,6 +12,7 @@ from app.services.chat import (
 from app.services.gemini import generate_content_with_file_search
 from sqlalchemy.future import select
 from sqlalchemy import update, or_, and_
+from sqlalchemy.dialects.postgresql import JSONB
 import datetime
 import os
 import re
@@ -19,26 +20,50 @@ import urllib.parse
 import time
 import requests
 import json
+import uuid
 
 logger = logging.getLogger(__name__)
 
+def serialize_payload(payload):
+    """Convert payload to JSON-serializable format, handling non-serializable objects."""
+    if payload is None:
+        return None
+    
+    try:
+        # Try to serialize to JSON and back to ensure it's clean
+        json_str = json.dumps(payload, default=str)
+        return json.loads(json_str)
+    except (TypeError, ValueError) as e:
+        # If serialization fails, convert to string representation
+        logger.warning(f"Payload serialization failed: {e}, converting to string")
+        return {"_serialized_error": str(e), "_original_type": str(type(payload)), "_string_repr": str(payload)[:1000]}
+
 async def log_webhook(client_id, type_str, payload, status="SUCCESS"):
+    """Log webhook to database. Handles invalid payloads gracefully."""
+    # Ensure client_id is never None (use placeholder for invalid payloads)
+    safe_client_id = client_id if client_id else "unknown"
+    
+    # Serialize payload to ensure it's JSON-safe
+    safe_payload = serialize_payload(payload)
+    
     async with AsyncSessionLocal() as session:
         try:
-            # Check if payload is dict, if so remove any nested nonsense if needed
-            # For JSON column, we just pass the dict.
             log = WebhookLog(
-                client_id=client_id,
+                client_id=safe_client_id,
                 type=type_str,
-                payload=payload,
+                payload=safe_payload,
                 status=status,
                 created_at=datetime.datetime.now()
             )
             session.add(log)
             await session.commit()
+            logger.debug(f"Webhook logged: {safe_client_id} - {type_str} - {status}")
         except Exception as e:
             logger.error(f"LOGGING ERROR: {e}")
-            await session.rollback()
+            try:
+                await session.rollback()
+            except:
+                pass
 
 async def handle_status_update(client_id, value):
     msg_template_id = str(value.get("message_template_id", ""))
@@ -222,7 +247,7 @@ async def handle_chat_message(client_id, value):
                     if not contact_name: contact_name = phone_number
                     contact.last_contacted = datetime.datetime.now()
                 else:
-                    # Create new contact
+                    # Create new contact with UUID
                     profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name", "")
                     f_name, l_name = "", ""
                     if profile_name:
@@ -230,7 +255,8 @@ async def handle_chat_message(client_id, value):
                         f_name = parts[0]
                         l_name = " ".join(parts[1:])
                     
-                    contact_id = phone_number # Or UUID. Using phone for simplicity/compatibility
+                    # Generate unique contact ID using UUID
+                    contact_id = str(uuid.uuid4())
                     new_contact = Contact(
                         id=contact_id,
                         client_id=client_id,
@@ -244,7 +270,7 @@ async def handle_chat_message(client_id, value):
                         created_at=datetime.datetime.now()
                     )
                     session.add(new_contact)
-                    await session.flush() # Ensure ID is available if generated, but we set it manually
+                    await session.flush() # Ensure ID is available
                     contact_name = f"{f_name} {l_name}".strip() if (f_name or l_name) else phone_number
                 
                 # Find or Create Chat

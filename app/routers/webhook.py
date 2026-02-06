@@ -36,15 +36,30 @@ async def verify_webhook(
 async def webhook_event(request: Request):
     try:
         body = await request.json()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to parse webhook JSON: {e}")
         return Response(status_code=400)
 
-    # Global log (optional, based on JS)
-    # await log_webhook("incoming_webhook", body)
+    # Check if this is a proper Meta webhook format
+    # Meta format: { "object": "whatsapp_business_account", "entry": [...] }
+    if not isinstance(body, dict):
+        logger.error(f"Invalid webhook body: not a dict, got {type(body)}")
+        await log_webhook(None, "invalid_payload", {"error": "Body is not a JSON object", "type": str(type(body))}, "ERROR")
+        return Response(status_code=200)
 
-    if not body.get("entry") or not isinstance(body.get("entry"), list):
-        logger.error(f"Invalid webhook body: {body}")
-        await log_webhook("invalid_payload", body, "ERROR")
+    # Check for Meta webhook format
+    if body.get("object") != "whatsapp_business_account":
+        # Not a Meta webhook - could be a test payload or different format
+        logger.warning(f"Unexpected webhook format - missing 'object': {list(body.keys())}")
+        # Still try to process if it has entry, otherwise log and return 200
+        if not body.get("entry"):
+            logger.error(f"Invalid webhook body: missing 'entry' array. Keys: {list(body.keys())}")
+            await log_webhook(None, "invalid_payload", {"error": "Missing 'entry' array", "received_keys": list(body.keys()), "sample": str(body)[:500]}, "ERROR")
+            return Response(status_code=200)
+    
+    if not isinstance(body.get("entry"), list):
+        logger.error(f"Invalid webhook body: 'entry' is not an array, got {type(body.get('entry'))}")
+        await log_webhook(None, "invalid_payload", {"error": "'entry' is not an array", "entry_type": str(type(body.get("entry")))}, "ERROR")
         return Response(status_code=200)
 
     try:
