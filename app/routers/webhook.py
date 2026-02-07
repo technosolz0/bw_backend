@@ -34,11 +34,20 @@ async def verify_webhook(
 
 @router.post("/webhook")
 async def webhook_event(request: Request):
+    # Get raw body first to check if empty
+    raw_body = await request.body()
+    
+    # Handle empty body (common for webhook testing)
+    if not raw_body or raw_body == b'':
+        logger.info("Received empty webhook POST request - likely a test")
+        return Response(status_code=200, content="Webhook endpoint is active")
+    
+    # Try to parse JSON
     try:
         body = await request.json()
     except Exception as e:
-        logger.error(f"Failed to parse webhook JSON: {e}")
-        return Response(status_code=400)
+        logger.error(f"Failed to parse webhook JSON: {e}. Raw body: {raw_body[:500]}")
+        return Response(status_code=400, content=f"Invalid JSON: {str(e)}")
 
     # Check if this is a proper Meta webhook format
     # Meta format: { "object": "whatsapp_business_account", "entry": [...] }
