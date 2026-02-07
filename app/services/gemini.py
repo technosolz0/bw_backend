@@ -2,7 +2,10 @@ import google.generativeai as genai
 from app.database import AsyncSessionLocal
 from app.models.sql_models import Message, Contact, UnansweredQuestion
 from sqlalchemy.future import select
-import datetime
+from datetime import timezone, timedelta
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 async def get_chat_history(client_id, session_id, limit=10):
     try:
@@ -176,7 +179,7 @@ async def log_unanswered_question(client_id, contact_id, question):
                 client_id=client_id,
                 contact_id=contact_id,
                 question=question,
-                timestamp=datetime.datetime.now()
+                timestamp=get_ist_time()
             )
             session.add(uq)
             await session.commit()

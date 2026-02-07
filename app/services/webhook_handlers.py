@@ -22,7 +22,12 @@ import requests
 import json
 import uuid
 
+from datetime import timezone, timedelta
+
 logger = logging.getLogger(__name__)
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 def serialize_payload(payload):
     """Convert payload to JSON-serializable format, handling non-serializable objects."""
@@ -53,7 +58,7 @@ async def log_webhook(client_id, type_str, payload, status="SUCCESS"):
                 type=type_str,
                 payload=safe_payload,
                 status=status,
-                created_at=datetime.datetime.now()
+                created_at=get_ist_time()
             )
             session.add(log)
             await session.commit()
@@ -99,7 +104,7 @@ async def handle_status_update(client_id, value):
                  template.category = category
                  if reason_block:
                      template.reason = reason_block
-                 template.updated_at = datetime.datetime.now()
+                 template.updated_at = get_ist_time()
              else:
                  # If template doesn't exist, we might create it but usually it should exist.
                  pass
@@ -118,7 +123,7 @@ async def handle_category_update(client_id, value):
             template = result.scalars().first()
             if template:
                 template.category = value.get("new_category") or value.get("correct_category") or ""
-                template.updated_at = datetime.datetime.now()
+                template.updated_at = get_ist_time()
                 await session.commit()
         except Exception as e:
              logger.error(f"Template Category Update Error: {e}")
@@ -139,6 +144,7 @@ async def handle_chat_message(client_id, value):
             from_phone = message.get("from")
             message_id = message.get("id")
             timestamp = message.get("timestamp")
+            actual_client_id = secrets.get("clientId", client_id)
             message_type = message.get("type")
 
             phone_data = extract_phone_number(from_phone)
@@ -165,7 +171,7 @@ async def handle_chat_message(client_id, value):
                 mime_type = message.get("image", {}).get("mime_type", "image/jpeg")
                 media_id = message.get("image", {}).get("id")
                 if media_id:
-                    uploaded = await download_and_upload_media(client_id, secrets, media_id, mime_type, None, message_id)
+                    uploaded = await download_and_upload_media(actual_client_id, secrets, media_id, mime_type, None, message_id)
                     if uploaded:
                         media_url = uploaded["url"]
                         file_name = uploaded["filename"]
@@ -181,7 +187,7 @@ async def handle_chat_message(client_id, value):
                 message_text = caption or f"📄 {file_name}"
                 media_id = doc.get("id")
                 if media_id:
-                    uploaded = await download_and_upload_media(client_id, secrets, media_id, mime_type, file_name, message_id)
+                    uploaded = await download_and_upload_media(actual_client_id, secrets, media_id, mime_type, file_name, message_id)
                     if uploaded:
                         media_url = uploaded["url"]
                         file_name = uploaded["filename"]
@@ -195,7 +201,7 @@ async def handle_chat_message(client_id, value):
                 mime_type = message.get("video", {}).get("mime_type", "video/mp4")
                 media_id = message.get("video", {}).get("id")
                 if media_id:
-                    uploaded = await download_and_upload_media(client_id, secrets, media_id, mime_type, None, message_id)
+                    uploaded = await download_and_upload_media(actual_client_id, secrets, media_id, mime_type, None, message_id)
                     if uploaded:
                         media_url = uploaded["url"]
                         file_name = uploaded["filename"]
@@ -210,7 +216,7 @@ async def handle_chat_message(client_id, value):
                  media_id = message.get("audio", {}).get("id")
                  if media_id:
                      voice_filename = f"voice_{message_id}.ogg" if is_voice else None
-                     uploaded = await download_and_upload_media(client_id, secrets, media_id, mime_type, voice_filename, message_id)
+                     uploaded = await download_and_upload_media(actual_client_id, secrets, media_id, mime_type, voice_filename, message_id)
                      if uploaded:
                         media_url = uploaded["url"]
                         file_name = uploaded["filename"]
@@ -221,6 +227,14 @@ async def handle_chat_message(client_id, value):
             elif message_type == "button":
                 message_text = message.get("button", {}).get("text", "Button")
                 context = message.get("button", {}).get("context")
+            
+            elif message_type == "interactive":
+                interactive = message.get("interactive", {})
+                if interactive.get("type") == "button_reply":
+                    message_text = interactive.get("button_reply", {}).get("title", "")
+                elif interactive.get("type") == "list_reply":
+                    message_text = interactive.get("list_reply", {}).get("title", "")
+                context = interactive.get("context")
             
             else:
                 logger.info(f"Unsupported message type: {message_type}")
@@ -233,7 +247,7 @@ async def handle_chat_message(client_id, value):
                 # Find or Create Contact
                 result = await session.execute(
                     select(Contact).where(
-                        Contact.client_id == client_id,
+                        Contact.client_id == actual_client_id,
                         Contact.phone_number == phone_number
                     )
                 )
@@ -245,7 +259,7 @@ async def handle_chat_message(client_id, value):
                     contact_id = contact.id
                     contact_name = f"{contact.f_name or ''} {contact.l_name or ''}".strip()
                     if not contact_name: contact_name = phone_number
-                    contact.last_contacted = datetime.datetime.now()
+                    contact.last_contacted = get_ist_time()
                 else:
                     # Create new contact with UUID
                     profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name", "")
@@ -259,15 +273,15 @@ async def handle_chat_message(client_id, value):
                     contact_id = str(uuid.uuid4())
                     new_contact = Contact(
                         id=contact_id,
-                        client_id=client_id,
+                        client_id=actual_client_id,
                         phone_number=phone_number,
                         country_code=country_code,
                         f_name=f_name,
                         l_name=l_name,
                         notes="Auto-created from WhatsApp message",
                         tags=[],
-                        last_contacted=datetime.datetime.now(),
-                        created_at=datetime.datetime.now()
+                        last_contacted=get_ist_time(),
+                        created_at=get_ist_time()
                     )
                     session.add(new_contact)
                     await session.flush() # Ensure ID is available
@@ -275,7 +289,7 @@ async def handle_chat_message(client_id, value):
                 
                 # Find or Create Chat
                 chat_result = await session.execute(
-                    select(Chat).where(Chat.id == contact_id, Chat.client_id == client_id)
+                    select(Chat).where(Chat.id == contact_id, Chat.client_id == actual_client_id)
                 )
                 chat = chat_result.scalars().first()
                 
@@ -286,23 +300,23 @@ async def handle_chat_message(client_id, value):
                 if not chat:
                     chat = Chat(
                         id=contact_id,
-                        client_id=client_id,
+                        client_id=actual_client_id,
                         contact_id=contact_id,
                         name=contact_name,
                         phone_number=full_phone_number,
                         last_message=message_text,
-                        last_message_time=datetime.datetime.now(),
+                        last_message_time=get_ist_time(),
                         is_online=False,
                         ai_response_enabled=False,
                         is_active=False,
                         un_read=False,
-                        created_at=datetime.datetime.now()
+                        created_at=get_ist_time()
                     )
                     session.add(chat)
                 else:
                     chat.last_message = message_text
-                    chat.last_message_time = datetime.datetime.now()
-                    chat.user_last_message_time = datetime.datetime.now()
+                    chat.last_message_time = get_ist_time()
+                    chat.user_last_message_time = get_ist_time()
                     if not chat.is_active:
                         chat.un_read = True
                     ai_response_enabled = chat.ai_response_enabled
@@ -315,14 +329,14 @@ async def handle_chat_message(client_id, value):
                     if message_type == 'text':
                         try:
                             ai_response = await generate_content_with_file_search(
-                                client_id, 
+                                actual_client_id, 
                                 message_text, 
                                 secrets.get("googleApiKey"), 
                                 [secrets.get("storeId"), secrets.get("qnaStoreId")], 
                                 contact_id
                             )
                             await send_whatsapp_message_helper({
-                                "clientId": client_id,
+                                "clientId": actual_client_id,
                                 "phoneNumber": phone_number,
                                 "message": ai_response,
                                 "chatId": contact_id,
@@ -333,7 +347,7 @@ async def handle_chat_message(client_id, value):
                              logger.error(f"AI Response Error: {e}")
                     else:
                         await send_whatsapp_message_helper({
-                            "clientId": client_id,
+                            "clientId": actual_client_id,
                             "phoneNumber": phone_number,
                             "message": "Sorry, could not understand your request. Try again later.",
                             "chatId": contact_id,
@@ -346,17 +360,17 @@ async def handle_chat_message(client_id, value):
                 # Ideally helper should accept session but structure is messy.
                 # I'll update broadcast_message_helper to handle its own session OR refactor it.
                 # For now let's call it.
-                template_chat_msg, broadcast_msg_to_update = await broadcast_message_helper(client_id, 'Sending', contact_id, full_phone_number)
+                template_chat_msg, broadcast_msg_to_update = await broadcast_message_helper(actual_client_id, 'Sending', contact_id, full_phone_number)
                 
                 if not template_chat_msg:
-                     template_chat_msg, broadcast_msg_to_update = await broadcast_message_helper(client_id, 'Sent', contact_id, full_phone_number)
+                     template_chat_msg, broadcast_msg_to_update = await broadcast_message_helper(actual_client_id, 'Sent', contact_id, full_phone_number)
                 
                 if template_chat_msg:
                     # Save template message to chat
                     async with AsyncSessionLocal() as session:
                         tmpl_msg = Message(
                              chat_id=contact_id,
-                             client_id=client_id,
+                             client_id=actual_client_id,
                              **template_chat_msg
                         )
                         session.add(tmpl_msg)
@@ -369,12 +383,12 @@ async def handle_chat_message(client_id, value):
 
                 # Save Incoming Message
                 ts_millis = int(timestamp) * 1000
-                ts_dt = datetime.datetime.fromtimestamp(ts_millis / 1000.0)
+                ts_dt = datetime.datetime.fromtimestamp(ts_millis / 1000.0, tz=timezone(timedelta(hours=5, minutes=30)))
                 
                 async with AsyncSessionLocal() as session:
                     new_msg = Message(
                         chat_id=contact_id,
-                        client_id=client_id,
+                        client_id=actual_client_id,
                         content=message_text,
                         timestamp=ts_dt,
                         is_from_me=False,
@@ -625,8 +639,8 @@ async def handle_message_status_update(client_id, value):
             
             logger.info(f"🔄 Updating status for: {whatsapp_message_id} → {status}")
             
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
-            status_timestamp = datetime.datetime.fromtimestamp(int(timestamp))
+            today = get_ist_time().strftime("%Y-%m-%d")
+            status_timestamp = datetime.datetime.fromtimestamp(int(timestamp), tz=timezone(timedelta(hours=5, minutes=30)))
 
             # 1. Check BroadcastMessage
             result = await session.execute(select(BroadcastMessage).where(BroadcastMessage.whatsapp_message_id == whatsapp_message_id))

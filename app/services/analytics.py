@@ -4,7 +4,12 @@ import os
 import datetime
 import logging
 
+from datetime import timezone, timedelta
+
 logger = logging.getLogger(__name__)
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 async def fetch_conversation_analytics(secrets, start, end, granularity):
     try:
@@ -69,7 +74,7 @@ async def fetch_messages_analytics(secrets, start, end, granularity):
         return []
 
 def get_time_range_params(filter_str, custom_start=None, custom_end=None):
-    now = datetime.datetime.now()
+    now = get_ist_time()
     start = None
     end = None
     granularity = "DAY"

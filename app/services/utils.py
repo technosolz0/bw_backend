@@ -3,15 +3,25 @@ from app.models.sql_models import Client
 from sqlalchemy.future import select
 import os
 
+from sqlalchemy import or_
+
 async def get_secrets(client_id: str):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Client).where(Client.client_id == client_id))
+        result = await session.execute(
+            select(Client).where(
+                or_(
+                    Client.client_id == client_id,
+                    Client.phone_number_id == client_id
+                )
+            )
+        )
         client = result.scalars().first()
         
         if not client:
             return None
             
         return {
+            "clientId": client.client_id,
             "wabaId": client.waba_id,
             "phoneNumberId": client.phone_number_id,
             "phoneNumber": client.phone_number,

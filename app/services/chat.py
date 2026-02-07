@@ -13,7 +13,12 @@ import time
 import asyncio
 import aiofiles
 
+from datetime import timezone, timedelta
+
 logger = logging.getLogger(__name__)
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 async def increment_daily_stats(client_id: str, date_str: str, type_str: str):
     async with AsyncSessionLocal() as session:
@@ -142,7 +147,7 @@ async def send_whatsapp_message_helper(request_body: dict):
         whatsapp_message_id = data.get("messages", [{}])[0].get("id")
 
         # 📊 NEW: Increment sent count
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        today = get_ist_time().strftime("%Y-%m-%d")
         await increment_daily_stats(client_id, today, "sent")
         logger.info(f"📊 Incremented sent count for {today}")
 
@@ -181,7 +186,7 @@ async def send_whatsapp_message_helper(request_body: dict):
                         name=formatted_phone, # Placeholder name
                         is_active=True,
                         un_read=False,
-                        created_at=datetime.datetime.now()
+                        created_at=get_ist_time()
                     )
                     session.add(chat)
                 
@@ -190,7 +195,7 @@ async def send_whatsapp_message_helper(request_body: dict):
                     chat_id=chat_id,
                     client_id=client_id,
                     content=message_content,
-                    timestamp=datetime.datetime.now(),
+                    timestamp=get_ist_time(),
                     is_from_me=True,
                     sender_name="Admin",
                     sender_avatar=None,
@@ -206,7 +211,7 @@ async def send_whatsapp_message_helper(request_body: dict):
                 # Update Chat last message
                 if chat:
                     chat.last_message = message_content
-                    chat.last_message_time = datetime.datetime.now()
+                    chat.last_message_time = get_ist_time()
                 
                 await session.commit()
 
@@ -333,7 +338,7 @@ async def download_and_upload_media(client_id, secrets, media_id, mime_type, ori
                 
                 final_filename = safe_original or f"{(message_id or media_id)[-8:]}_{timestamp}_{random_str}.{ext}"
                 
-                now = datetime.datetime.now()
+                now = get_ist_time()
                 year = now.year
                 month = f"{now.month:02d}"
                 

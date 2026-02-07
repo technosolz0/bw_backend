@@ -12,7 +12,10 @@ import asyncio
 from PIL import Image, ImageDraw, ImageFont
 import io
 import os
-import io
+from datetime import timezone, timedelta
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ async def send_milestone_messages(body: MilestoneTriggerRequest):
             type_str = scheduler.type
             
             # Date logic
-            now = datetime.datetime.now()
+            now = get_ist_time()
             day = f"{now.day:02d}"
             month = f"{now.month:02d}"
             day_month = f"{day} {month}"
@@ -176,7 +179,7 @@ async def send_milestone_messages(body: MilestoneTriggerRequest):
             await session.execute(
                 update(MilestoneScheduler)
                 .where(MilestoneScheduler.id == scheduler_id)
-                .values(last_run=datetime.datetime.now())
+                .values(last_run=get_ist_time())
             )
             await session.commit()
         return {"success": True, "message": "Milestone Scheduler completed"}
