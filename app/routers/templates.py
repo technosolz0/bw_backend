@@ -34,7 +34,6 @@ async def create_template(body: TemplateCreate):
         return Response(content=str(e), status_code=500)
 
 @router.get("/getInteraktTemplates")
-@router.get("/getInteraktTemplates")
 async def get_templates(
     clientId: str = Query(None),
     limit: int = Query(None),
@@ -56,7 +55,6 @@ async def get_templates(
         return Response(content=str(e), status_code=500)
 
 @router.get("/getApprovedTemplates")
-@router.get("/getApprovedTemplates")
 async def get_approved(clientId: str = Query(...)):
     try:
         result = await get_interakt_templates(clientId, status="APPROVED", fields="name,category")
@@ -64,7 +62,6 @@ async def get_approved(clientId: str = Query(...)):
     except Exception as e:
         return Response(content=str(e), status_code=500)
 
-@router.get("/getApprovedMediaTemplates")
 @router.get("/getApprovedMediaTemplates")
 async def get_approved_media(clientId: str = Query(...)):
     try:
@@ -95,7 +92,6 @@ async def get_approved_media(clientId: str = Query(...)):
     except Exception as e:
         return Response(content=str(e), status_code=500)
 
-@router.post("/deleteInteraktTemplate")
 @router.post("/deleteInteraktTemplate")
 async def delete_template(body: DeleteTemplateRequest):
     try:

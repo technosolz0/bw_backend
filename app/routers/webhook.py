@@ -22,15 +22,24 @@ async def verify_webhook(
     mode: str = Query(None, alias="hub.mode"),
     token: str = Query(None, alias="hub.verify_token")
 ):
-    # Replicating JS logic: strictly check challenge existence.
-    # Checks on token are commented out in original JS, but we can verify against env if we want.
-    # verify_token = os.getenv("WEBHOOK_VERIFY_TOKEN", "my_secure_chat_webhook_2024")
+    logger.info(f"VERIFY_WEBHOOK: mode={mode}, token={token}, challenge={challenge}")
     
-    if challenge:
-        # if mode == "subscribe" and token == verify_token:
+    # Meta sends these 3 parameters. If token matches what we set in Meta Dashboard, 
+    # we MUST return the challenge.
+    
+    # Get verify token from env, default to "bw.backend" as seen in logs
+    verify_token = os.getenv("WEBHOOK_VERIFY_TOKEN", "bw.backend")
+    
+    if mode == "subscribe" and token == verify_token:
+        logger.info("Webhook verified successfully!")
         return PlainTextResponse(content=challenge)
         
-    return Response(status_code=400)
+    # If it's just a test request with a challenge but no token/mode validation needed
+    if challenge and not mode:
+        return PlainTextResponse(content=challenge)
+        
+    logger.warning(f"Webhook verification failed. Expected token: {verify_token}")
+    return Response(status_code=400, content="Verification failed")
 
 @router.post("/webhook")
 async def webhook_event(request: Request):
@@ -56,6 +65,8 @@ async def webhook_event(request: Request):
         await log_webhook(None, "invalid_payload", {"error": "Body is not a JSON object", "type": str(type(body))}, "ERROR")
         return Response(status_code=200)
 
+    logger.info(f"Webhook event received: {body.get('object')}")
+
     # Check for Meta webhook format
     if body.get("object") != "whatsapp_business_account":
         # Not a Meta webhook - could be a test payload or different format
@@ -80,18 +91,8 @@ async def webhook_event(request: Request):
                 # metadata could be in value.metadata or value directly?
                 # JS: const phoneNumberId = value.metadata?.phone_number_id;
                 phone_number_id = value.get("metadata", {}).get("phone_number_id")
-                
-                # Note: We use phoneNumberId as clientId in many places in JS logs, 
-                # but handlers take 'clientId'.
-                # In the JS handlers (e.g. handleStatusUpdate(clientId, value)), 
-                # usually clientId is passed.
-                # Is phoneNumberId == clientId?
-                # In helper functions, existing code queried collections using 'clientId'.
-                # We need to ensure we use the correct ID.
-                # In standard WhatsApp Cloud API, phoneNumberId is effectively the client ID if configured that way.
-                # Let's check how 'logWebhook' was called in JS: logWebhook(phoneNumberId, ...)
-                
                 client_id = phone_number_id
+                logger.info(f"Processing webhook for Client ID (PhoneNumberID): {client_id}, Field: {field}")
                 
                 if field == "message_template_status_update":
                     await log_webhook(client_id, "status_update", value)
