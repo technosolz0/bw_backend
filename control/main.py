@@ -19,4 +19,4 @@ async def root():
     return {"message": "Welcome to BW Backend Control API"}
 
 if __name__ == "__main__":
-    uvicorn.run("control.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("control.main:app", host="0.0.0.0", port=8008, reload=True)

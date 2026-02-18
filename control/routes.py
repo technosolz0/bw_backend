@@ -12,7 +12,7 @@ load_dotenv()
 
 router = APIRouter()
 
-X_API_KEY = os.getenv("API_KEY", "your-secret-api-key")
+X_API_KEY = os.getenv("API_KEY", "SUPER@SECRET@KEY@32")
 
 async def verify_api_key(x_api_key: str = Header(None)):
     if x_api_key != X_API_KEY:
