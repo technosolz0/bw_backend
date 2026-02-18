@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from .database import get_db
+from app.database import get_db
+
 from .models import AppConfig, AppLog
 from .schemas import AppStatusResponse, ToggleStatusRequest, LogCreateRequest, LogResponse
 import os

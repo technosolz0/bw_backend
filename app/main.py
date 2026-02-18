@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import os
 import logging
 from app.routers import webhook, analytics, tools, chat, profile, templates, migration, scheduler
+from control.routes import router as control_router
+import control.models
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +23,7 @@ app.include_router(profile.router)
 app.include_router(templates.router)
 app.include_router(migration.router)
 app.include_router(scheduler.router)
+app.include_router(control_router)
 
 from app.database import init_db
 from fastapi.staticfiles import StaticFiles
