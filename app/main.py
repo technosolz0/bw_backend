@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.future import select
 from dotenv import load_dotenv
 import os
 import logging
@@ -25,8 +27,33 @@ app.include_router(migration.router)
 app.include_router(scheduler.router)
 app.include_router(control_router)
 
-from app.database import init_db
+from app.database import init_db, AsyncSessionLocal
+from control.models import AppConfig
 from fastapi.staticfiles import StaticFiles
+
+# Maintenance Middleware
+@app.middleware("http")
+async def check_maintenance_mode(request: Request, call_next):
+    # Paths that are ALWAYS allowed (Admin and Status)
+    exempt_paths = ["/admin", "/app-status", "/docs", "/openapi.json", "/static", "/"]
+    
+    if any(request.url.path.startswith(path) for path in exempt_paths):
+        return await call_next(request)
+
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(select(AppConfig).limit(1))
+            config = result.scalars().first()
+            if config and config.maintenance_mode:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "System is under maintenance. Please try again later."}
+                )
+        except Exception as e:
+            # If DB error, log it but let the request through to avoid locking out the app
+            print(f"Middleware DB Error: {e}")
+
+    return await call_next(request)
 
 @app.on_event("startup")
 async def on_startup():

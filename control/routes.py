@@ -15,10 +15,10 @@ router = APIRouter()
 X_API_KEY = os.getenv("API_KEY", "SUPER@SECRET@KEY@32")
 
 async def verify_api_key(x_api_key: str = Header(None)):
-    if x_api_key != X_API_KEY:
+    if not x_api_key or x_api_key != X_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Could not validate credentials"
+            detail=f"Could not validate credentials. Header present: {x_api_key is not None}"
         )
     return x_api_key
 
