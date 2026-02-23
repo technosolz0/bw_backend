@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.future import select
 from dotenv import load_dotenv
 import os
 import logging
-from app.routers import webhook, analytics, tools, chat, profile, templates, migration, scheduler, broadcasts
+from app.routers import webhook, analytics, tools, chat, profile, templates, migration, scheduler, broadcasts, auth, clients, admins, roles
 from control.routes import router as control_router
 import control.models
 
@@ -16,6 +17,15 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Business WhatsApp Backend")
 
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include Routers
 app.include_router(webhook.router)
 app.include_router(analytics.router)
@@ -26,6 +36,10 @@ app.include_router(templates.router)
 app.include_router(migration.router)
 app.include_router(scheduler.router)
 app.include_router(broadcasts.router)
+app.include_router(auth.router)
+app.include_router(clients.router)
+app.include_router(admins.router)
+app.include_router(roles.router)
 app.include_router(control_router)
 
 from app.database import init_db, AsyncSessionLocal

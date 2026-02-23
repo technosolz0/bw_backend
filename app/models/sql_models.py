@@ -16,6 +16,13 @@ class Client(Base):
     store_id = Column(String)
     qna_store_id = Column(String)
     google_api_key = Column(String)
+    name = Column(String, default="Messaging Portal")
+    logo_url = Column(String)
+    is_crm_enabled = Column(Boolean, default=False)
+    admin_limit = Column(Integer, default=2)
+    is_premium = Column(Boolean, default=True)
+    subscription_expiry = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String, default="Approved")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -104,6 +111,7 @@ class Chat(Base):
     ai_response_enabled = Column(Boolean, default=False)
     is_active = Column(Boolean, default=False)
     un_read = Column(Boolean, default=False)
+    assigned_admins = Column(JSON, default=list) # Array of admin IDs
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user_last_message_time = Column(DateTime(timezone=True))
 
@@ -253,3 +261,44 @@ class WalletHistory(Base):
     chargeable_amount = Column(Float)
     
     wallet = relationship("Wallet", back_populates="history")
+
+class Admin(Base):
+    __tablename__ = "admins"
+
+    id = Column(String, primary_key=True, index=True)
+    client_id = Column(String, ForeignKey("clients.client_id"))
+    email = Column(String, index=True)
+    password = Column(String) # Hashed password
+    first_name = Column(String)
+    last_name = Column(String)
+    profile_photo = Column(String)
+    assigned_contacts = Column(JSON, default=list) # Array of chat/contact IDs
+    is_super_user = Column(Boolean, default=False)
+    is_all_chats = Column(Boolean, default=False)
+    assigned_pages = Column(JSON, default=list)
+    last_logged_in = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    client = relationship("Client")
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(String, primary_key=True, index=True)
+    client_id = Column(String, ForeignKey("clients.client_id"))
+    role_name = Column(String)
+    assigned_pages = Column(JSON, default=list)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    client = relationship("Client")
+
+class Charge(Base):
+    __tablename__ = "charges"
+
+    id = Column(String, primary_key=True)
+    name = Column(String)
+    price = Column(Float)
+    description = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

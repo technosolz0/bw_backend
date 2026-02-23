@@ -8,7 +8,54 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from app.schemas import BroadcastStartRequest, BroadcastCreateRequest
+from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest
+
+@router.post("/sendTemplateMessage")
+async def send_template_message_endpoint(body: SendTemplateMessageRequest):
+    try:
+        client_id = body.clientId
+        secrets = await get_secrets(client_id)
+        if not secrets:
+            return Response(content="Client secrets not found", status_code=404)
+        
+        # Extract variables
+        body_vars = body.bodyVariables
+        media_id = body.mediaId
+        media_type = body.mediaType or "image"
+        header_text = body.headerText
+        button_payloads = None
+        
+        # If headerVariables is provided (matching broadcastHandler.js format)
+        if body.headerVariables:
+            h_type = body.headerVariables.get("type")
+            h_data = body.headerVariables.get("data", {})
+            if h_type == "text":
+                header_text = h_data.get("text")
+            else:
+                media_id = h_data.get("mediaId")
+                media_type = h_type
+        
+        if body.buttonVariables:
+            button_payloads = [b.get("payload") for b in body.buttonVariables if b.get("payload")]
+
+        from app.services.whatsapp_meta import send_template_message
+        response = await send_template_message(
+            client_id=client_id,
+            secrets=secrets,
+            template_name=body.templateName,
+            language=body.language,
+            body_vars=body_vars,
+            media_id=media_id,
+            phone_number=body.phoneNumber,
+            header_text=header_text,
+            media_type=media_type,
+            button_payloads=button_payloads
+        )
+        
+        return {"success": True, "data": response}
+    except Exception as e:
+        logger.error(f"Error sending template message: {e}")
+        return Response(content=str(e), status_code=500)
 
 @router.post("/startBroadcast")
 async def start_broadcast_endpoint(body: BroadcastStartRequest):

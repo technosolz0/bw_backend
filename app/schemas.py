@@ -12,6 +12,9 @@ class ClientBase(BaseModel):
     store_id: Optional[str] = None
     qna_store_id: Optional[str] = None
     google_api_key: Optional[str] = None
+    name: Optional[str] = "Messaging Portal"
+    logo_url: Optional[str] = None
+    is_crm_enabled: Optional[bool] = False
 
 class ClientCreate(ClientBase):
     pass
@@ -24,6 +27,9 @@ class ClientUpdate(BaseModel):
     store_id: Optional[str] = None
     qna_store_id: Optional[str] = None
     google_api_key: Optional[str] = None
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_crm_enabled: Optional[bool] = None
 
 class Client(ClientBase):
     created_at: Optional[datetime] = None
@@ -31,6 +37,53 @@ class Client(ClientBase):
 
     class Config:
         from_attributes = True
+
+# --- Charge Schemas ---
+class RoleBase(BaseModel):
+    role_name: str
+    client_id: str
+    assigned_pages: List[Dict[str, Any]] = []
+
+class RoleCreate(RoleBase):
+    id: Optional[str] = None
+
+class RoleUpdate(BaseModel):
+    role_name: Optional[str] = None
+    assigned_pages: Optional[List[Dict[str, Any]]] = None
+
+class Role(RoleBase):
+    id: str
+    created_at: datetime.datetime
+    updated_at: Optional[datetime.datetime] = None
+
+    class Config:
+        orm_mode = True
+
+class ChargeBase(BaseModel):
+    id: str
+    name: str
+    price: float
+    description: Optional[str] = None
+
+class ChargeCreate(ChargeBase):
+    pass
+
+class Charge(ChargeBase):
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Auth Schemas ---
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginResponse(BaseModel):
+    success: bool
+    token: str
+    admin: Dict[str, Any]
+    clientId: str
 
 # --- Contact Schemas ---
 class ContactBase(BaseModel):
@@ -445,3 +498,59 @@ class AnalyticsRequest(BaseModel):
 
 class PhoneNumberRequest(BaseModel):
     phoneNumber: str
+
+class SendTemplateMessageRequest(BaseModel):
+    clientId: str
+    templateName: str
+    language: str
+    phoneNumber: str
+    bodyVariables: Optional[List[str]] = None
+    headerVariables: Optional[Dict[str, Any]] = None # Matches broadcastHandler.js format
+    buttonVariables: Optional[List[Dict[str, Any]]] = None # Matches broadcastHandler.js format
+    # Optional direct fields for simpler usage
+    mediaId: Optional[str] = None
+    mediaType: Optional[str] = "image"
+    headerText: Optional[str] = None
+class UpdateChatRequest(BaseModel):
+    clientId: str
+    chatId: str
+    isActive: Optional[bool] = None
+    unRead: Optional[bool] = None
+    isFavourite: Optional[bool] = None
+    assignedAdmins: Optional[List[str]] = None
+
+# --- Admin Schemas ---
+class AdminBase(BaseModel):
+    id: str
+    client_id: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    profile_photo: Optional[str] = None
+
+class AdminCreate(AdminBase):
+    password: str
+
+class AdminUpdate(BaseModel):
+    client_id: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    profile_photo: Optional[str] = None
+    password: Optional[str] = None
+    is_super_user: Optional[bool] = None
+    is_all_chats: Optional[bool] = None
+    assigned_pages: Optional[List[str]] = None
+    assigned_contacts: Optional[List[str]] = None
+
+class Admin(AdminBase):
+    assigned_contacts: List[str] = []
+    is_super_user: bool = False
+    is_all_chats: bool = False
+    assigned_pages: List[str] = []
+    last_logged_in: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

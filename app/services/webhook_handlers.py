@@ -13,6 +13,7 @@ from app.services.gemini import generate_content_with_file_search
 from sqlalchemy.future import select
 from sqlalchemy import update, or_, and_
 from sqlalchemy.dialects.postgresql import JSONB
+from app.services.websocket_manager import manager
 import datetime
 import os
 import re
@@ -407,6 +408,25 @@ async def handle_chat_message(client_id, value):
                 
                 logger.info(f"Message stored successfully for contact {contact_id}")
 
+                # Broadcast to connected clients for real-time update
+                await manager.broadcast_to_client(actual_client_id, {
+                    "type": "new_message",
+                    "chatId": contact_id,
+                    "message": {
+                        "content": message_text,
+                        "timestamp": ts_dt.isoformat(),
+                        "is_from_me": False,
+                        "sender_name": contact_name,
+                        "status": "delivered",
+                        "whatsapp_message_id": message_id,
+                        "message_type": message_type,
+                        "media_url": media_url,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "caption": caption
+                    }
+                })
+
     except Exception as e:
         logger.error(f"Error handling chat message: {e}")
         # In Python we don't necessarily rethrow if inside an event loop unless strict
@@ -683,6 +703,13 @@ async def handle_message_status_update(client_id, value):
                     await increment_daily_stats(client_id, today, 'read')
                 
                 await session.commit()
+                
+                # Broadcast status update for broadcast messages
+                await manager.broadcast_to_client(client_id, {
+                    "type": "status_update",
+                    "whatsappMessageId": whatsapp_message_id,
+                    "status": status
+                })
                 continue # broadcast handled
 
             # 2. Check Chat Message
@@ -711,6 +738,13 @@ async def handle_message_status_update(client_id, value):
                         await increment_daily_stats(client_id, today, 'read')
                     
                     await session.commit()
+
+                    # Broadcast status update for individual chat messages
+                    await manager.broadcast_to_client(client_id, {
+                        "type": "status_update",
+                        "whatsappMessageId": whatsapp_message_id,
+                        "status": status
+                    })
                 else:
                     logger.info(f"Skipping status update {status} for {whatsapp_message_id} (current: {current_status})")
             else:
