@@ -282,3 +282,115 @@ async def delete_meta_template(client_id, name):
             }
         )
         return response.json()
+
+async def send_template_message(
+    client_id: str,
+    secrets: dict,
+    template_name: str,
+    language: str,
+    body_vars: list = None,
+    media_id: str = None,
+    phone_number: str = None,
+    header_text: str = None,
+    media_type: str = "image",
+    button_payloads: list = None
+):
+    """
+    Sends a WhatsApp template message using the Meta Cloud API.
+    Supports text, media (image, video, document), and interactive components (buttons).
+    """
+    try:
+        base_url = get_base_url()
+        token = await get_meta_token()
+        
+        # Determine the components
+        components = []
+        
+        # 1. Header Component
+        header_params = []
+        if media_id:
+            m_type = media_type.lower()
+            header_params.append({
+                "type": m_type,
+                m_type: {
+                    "id": media_id
+                }
+            })
+            # For documents, header_text might be used as the filename
+            if m_type == "document" and header_text:
+                 header_params[0][m_type]["filename"] = header_text
+        elif header_text:
+            header_params.append({
+                "type": "text",
+                "text": header_text
+            })
+            
+        if header_params:
+            components.append({
+                "type": "header",
+                "parameters": header_params
+            })
+            
+        # 2. Body Component
+        if body_vars:
+            body_params = []
+            for val in body_vars:
+                body_params.append({
+                    "type": "text",
+                    "text": str(val)
+                })
+            components.append({
+                "type": "body",
+                "parameters": body_params
+            })
+            
+        # 3. Button Components (Quick Replies)
+        if button_payloads:
+            for index, payload in enumerate(button_payloads):
+                if payload:
+                    components.append({
+                        "type": "button",
+                        "sub_type": "quick_reply",
+                        "index": str(index),
+                        "parameters": [{
+                            "type": "payload",
+                            "payload": payload
+                        }]
+                    })
+                    
+        # Construct Final Payload
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": phone_number,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {
+                    "code": language
+                }
+            }
+        }
+        
+        if components:
+            payload["template"]["components"] = components
+            
+        url = f"{base_url}/{secrets['phoneNumberId']}/messages"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+            
+    except Exception as e:
+        logger.error(f"Error in send_template_message: {e}")
+        if hasattr(e, 'response') and e.response:
+             logger.error(f"Response: {e.response.text}")
+        raise e
