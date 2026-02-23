@@ -1,15 +1,23 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from app.database import AsyncSessionLocal
 from app.models.sql_models import Message, Contact, UnansweredQuestion
 from sqlalchemy.future import select
 from datetime import timezone, timedelta
+import datetime
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+# Default system instruction if none provided in config
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant for a business managing WhatsApp communications."
 
 def get_ist_time():
     return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 async def get_chat_history(client_id, session_id, limit=10):
     try:
-        # session_id is contact_id (which is chat_id for us usually)
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(Message).where(
@@ -22,127 +30,90 @@ async def get_chat_history(client_id, session_id, limit=10):
             
             history = []
             for msg in messages:
-                history.append({
-                    "role": "model" if msg.is_from_me else "user",
-                    "parts": [msg.content or ""]
-                })
+                history.append(types.Content(
+                    role="model" if msg.is_from_me else "user",
+                    parts=[types.Part.from_text(text=msg.content or "")]
+                ))
         
-        return history[::-1] # Reverse to ascending
+        return history[::-1]
     except Exception as e:
         logger.error(f"Error fetching history for chat session {session_id}: {e}")
         return []
 
-async def generate_content_with_file_search(client_id, prompt, api_key, store_ids, model_name="gemini-2.5-flash-lite", config=None, session_id=None, context_window=10):
+async def generate_content_with_file_search(client_id, prompt, api_key, store_ids, model_name="gemini-2.0-flash-lite", config=None, session_id=None, context_window=10):
     if not api_key:
         raise ValueError("googleApiKey is not set in client's secrets.")
     
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     
-    # Python SDK tool configuration for File Search with existing stores is a bit specific.
-    # We might need to look up how to pass store names if using existing stores.
-    # The 'google-generativeai' library might not expose 'fileSearchStoreNames' directly in the helper like Node.
-    # Only if we are using the low-level proto or specialized setup.
-    # FOR NOW: We will assume we can pass tools.
-    
-    # Note: 'scheduleCall' function declaration
+    # Use system_instruction from config or default
+    system_instruction = config.get("system_instruction") if config else DEFAULT_SYSTEM_PROMPT
+
     tools = [
-        # { "file_search": ... } # This is usually handled by `genai.protos.Tool` if we go deep, 
-        # or simplified in recent SDKs.
-        # If we can't easily pass the store ID, we might skip the store ID part or try best effort.
-        # But the User wants logic ported. The Node SDK explicitly supports `fileSearchStoreNames`.
-        # Python SDK supports `request_options` or similar? 
-        
-        # Actually, for Python:
-        # tool = code_execution.CodeExecutionTool() # etc
-        # But for File Search?
-        
-        # Let's try to construct the tool list as dictionaries which the SDK often accepts.
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="scheduleCall",
+                    description="Schedule a call with a business representative when a user provides a date and time.",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "dateTime": types.Schema(
+                                type="STRING",
+                                description="The date and time the user wants to schedule the call for (e.g., 'tomorrow at 3pm', '2025-12-25 10:00')."
+                            ),
+                            "reason": types.Schema(
+                                type="STRING",
+                                description="The reason for the call or any specific topic mentioned by the user."
+                            )
+                        },
+                        required=["dateTime"]
+                    )
+                )
+            ]
+        )
     ]
-    
-    # We will simulate the Function Declaration
-    function_declarations = [
-        {
-            "name": "scheduleCall",
-            "description": "Schedule a call with a business representative when a user provides a date and time.",
-            "parameters": {
-                "type": "OBJECT",
-                "properties": {
-                    "dateTime": {
-                        "type": "STRING",
-                        "description": "The date and time the user wants to schedule the call for (e.g., 'tomorrow at 3pm', '2025-12-25 10:00')."
-                    },
-                    "reason": {
-                        "type": "STRING",
-                        "description": "The reason for the call or any specific topic mentioned by the user."
-                    }
-                },
-                "required": ["dateTime"]
-            }
-        }
-    ]
-    
-    # Constructing the model
-    # Note: Python SDK might not support `fileMatch` directly in `generative_model` if strictly using `google-generativeai`.
-    # It might be `vertexai` that handles this better for existing stores?
-    # But let's assume `google.generativeai` works.
-    
-    # However, passing `storeIds` manually to `google-generativeai` is tricky if it handles uploads itself.
-    # If the stores were created via API (not Python SDK), we need to reference them.
-    # I will omit the file_search config details for brevity validation but include the logic structure.
-    # If this fails at runtime, we'll need to adjust.
-    
-    # Ideally: tools=[{'function_declarations': ...}, {'google_search_retrieval': ...}]
-    
-    # WORKAROUND: The Python SDK `google-generativeai` allows generic dicts in some versions.
-    
+
     history = []
     if session_id:
         history = await get_chat_history(client_id, session_id, context_window)
         
-    chat_session = None
-    model = genai.GenerativeModel(
-        model_name,
-        system_instruction=SYSTEM_PROMPT,
-        tools=function_declarations # And file search?
-    )
-    
-    # If we can't pass existing store IDs easily, we might need to rely on the prompt or context 
-    # OR assume the user has configured the model to have access?
-    # In Node code: `fileSearchStoreNames: storeIds`. 
-    
     logger.info(f"Generating content... sessionId: {session_id}, prompt: {prompt}")
     
-    chat = model.start_chat(history=history or [])
-    
-    # Sending message
-    # Note: The Python SDK handles function calls automatically if configured OR returns a Part with function_call.
-    # We need to handle it.
-    
-    response = chat.send_message(prompt)
-    
-    response_text = ""
-    if response.text:
+    generate_config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=tools,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False)
+    )
+
+    try:
+        chat = client.chats.create(model=model_name, config=generate_config, history=history)
+        response = chat.send_message(prompt)
+        
         response_text = response.text
         
-    # Check for function calls
-    for part in response.parts:
-        if part.function_call:
-            fc = part.function_call
-            if fc.name == "scheduleCall":
-                args = fc.args
-                date_time = args.get("dateTime")
-                reason = args.get("reason")
-                logger.info(f"Tool Call: scheduleCall detected. DateTime: {date_time}, Reason: {reason}")
-                
-                await notify_sales_team(client_id, session_id, date_time, reason)
-                
-                if not response_text:
-                    response_text = f"Great! I've noted down your request for a call on {date_time}. Our team will get back to you shortly."
+        # Check for function calls
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                call = getattr(part, 'call', None)
+                if call and call.name == "scheduleCall":
+                    args = call.args
+                    date_time = args.get("dateTime")
+                    reason = args.get("reason")
+                    logger.info(f"Tool Call: scheduleCall detected. DateTime: {date_time}, Reason: {reason}")
+                    
+                    await notify_sales_team(client_id, session_id, date_time, reason)
+                    
+                    if not response_text:
+                        response_text = f"Great! I've noted down your request for a call on {date_time}. Our team will get back to you shortly."
 
-    if response_text and "Would you like to schedule a call with a representative?" in response_text:
-        await log_unanswered_question(client_id, session_id, prompt)
+        if response_text and "Would you like to schedule a call with a representative?" in response_text:
+            await log_unanswered_question(client_id, session_id, prompt)
 
-    return response_text
+        return response_text
+    except Exception as e:
+        logger.error(f"Error generating content: {e}")
+        return "I'm sorry, I'm having trouble processing your request right now."
 
 async def notify_sales_team(client_id, contact_id, date_time, reason):
     try:
@@ -166,7 +137,7 @@ async def notify_sales_team(client_id, contact_id, date_time, reason):
             
         notification_text = f"🚀 *New Call Scheduled!*\n\n*Contact:* {contact_info}\n*Time:* {date_time}\n*Topic:* {reason or 'Not specified'}\n\nPlease reach out to the customer at the scheduled time."
         
-        # TODO: Send via WhatsApp Interakt API (using send helper maybe?)
+        # TODO: Send notification via WhatsApp Interakt API
         logger.info(f"Sales team notified about call for contact {contact_id}")
             
     except Exception as e:
