@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Request, Response, UploadFile, File, Form
-from app.services.interakt import (
-    create_interakt_template,
-    get_interakt_templates,
-    delete_interakt_template,
+from app.services.whatsapp_meta import (
+    get_meta_templates,
+    delete_meta_template,
+    create_meta_template,
     create_media_handle,
     create_media_id
 )
