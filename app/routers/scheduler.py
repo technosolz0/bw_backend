@@ -2,7 +2,14 @@ from fastapi import APIRouter, Request, Response
 from app.database import AsyncSessionLocal
 from app.models.sql_models import Contact, MilestoneScheduler
 from app.services.chat import send_whatsapp_message_helper
-from app.services.interakt import create_media_id
+from app.services.whatsapp_meta import (
+    create_meta_template,
+    get_meta_templates,
+    delete_meta_template,
+    create_media_handle,
+    create_media_id,
+    send_template_message
+)
 from app.services.utils import get_secrets
 from sqlalchemy.future import select
 import logging
@@ -249,47 +256,3 @@ def generate_composite_image(bg_buffer, width, height, bg_scale, bg_images, text
     canvas.save(out_buf, format="PNG")
     return out_buf.getvalue()
 
-async def send_template_message(client_id, secrets, template_name, language, body_vars, media_id, phone_number):
-    try:
-        base_url = get_secrets(client_id) # wait we have secrets
-        # get_base_url is strictly 'graph.facebook...'?
-        # Use existing secrets
-        from app.services.utils import get_base_url
-        base_url = get_base_url()
-        
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": phone_number,
-            "type": "template",
-            "template": {
-                "name": template_name,
-                "language": {"code": language or "en"},
-                "components": [
-                    {
-                        "type": "header",
-                        "parameters": [
-                            {"type": "image", "image": {"id": media_id}}
-                        ]
-                    },
-                    {
-                        "type": "body",
-                        "parameters": [{"type": "text", "text": str(v)} for v in body_vars]
-                    }
-                ]
-            }
-        }
-        
-        token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
-        
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                f"{base_url}/{secrets['phoneNumberId']}/messages",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                }
-            )
-    except Exception as e:
-        logger.error(f"Error sending template: {e}")
-        # swallow error to continue loop

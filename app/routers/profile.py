@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Response, UploadFile, File, Form
-from app.services.interakt import (
+from app.services.whatsapp_meta import (
     get_whatsapp_business_profile,
     update_whatsapp_business_profile,
     create_media_handle

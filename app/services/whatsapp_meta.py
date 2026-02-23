@@ -158,13 +158,13 @@ async def update_whatsapp_business_profile(client_id, payload):
         )
         return response.json()
 
-async def create_interakt_template(client_id, template_data):
+async def create_meta_template(client_id, template_data):
     secrets = await get_secrets(client_id)
     base_url = get_base_url()
     token = await get_meta_token()
     
     # Construct payload logic based on template_data
-    # This logic matches createInteraktTemplate in templateHandler.js
+    # This logic matches createMetaTemplate in templateHandler.js
     
     name = template_data.get("name")
     language = template_data.get("language")
@@ -242,7 +242,7 @@ async def create_interakt_template(client_id, template_data):
         )
         return response.json()
 
-async def get_interakt_templates(client_id, limit=None, after=None, before=None, status=None, fields=None):
+async def get_meta_templates(client_id, limit=None, after=None, before=None, status=None, fields=None):
     secrets = await get_secrets(client_id)
     base_url = get_base_url()
     token = await get_meta_token()
@@ -265,7 +265,7 @@ async def get_interakt_templates(client_id, limit=None, after=None, before=None,
         )
         return response.json()
 
-async def delete_interakt_template(client_id, name):
+async def delete_meta_template(client_id, name):
     secrets = await get_secrets(client_id)
     base_url = get_base_url()
     token = await get_meta_token()

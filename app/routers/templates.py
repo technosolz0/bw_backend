@@ -27,7 +27,7 @@ async def create_template(body: TemplateCreate):
         # We can pass body.dict() or similar.
         data = body.dict(exclude_none=True)
         # Note: templateType vs type in older code? schema has templateType. 
-        result = await create_interakt_template(body.clientId, data) 
+        result = await create_meta_template(body.clientId, data) 
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"Error creating template: {e}")
@@ -44,7 +44,7 @@ async def get_templates(
         if not clientId:
              return Response("Missing clientId", status_code=400)
              
-        result = await get_interakt_templates(
+        result = await get_meta_templates(
             clientId, 
             limit, 
             after, 
@@ -57,7 +57,7 @@ async def get_templates(
 @router.get("/getApprovedTemplates")
 async def get_approved(clientId: str = Query(...)):
     try:
-        result = await get_interakt_templates(clientId, status="APPROVED", fields="name,category")
+        result = await get_meta_templates(clientId, status="APPROVED", fields="name,category")
         return {"success": True, "data": result.get("data", [])}
     except Exception as e:
         return Response(content=str(e), status_code=500)
@@ -66,7 +66,7 @@ async def get_approved(clientId: str = Query(...)):
 async def get_approved_media(clientId: str = Query(...)):
     try:
         client_id = clientId
-        result = await get_interakt_templates(client_id, status="APPROVED", fields="name,category")
+        result = await get_meta_templates(client_id, status="APPROVED", fields="name,category")
         approved_templates = result.get("data", [])
         
         # Database filter
@@ -101,7 +101,7 @@ async def delete_template(body: DeleteTemplateRequest):
         if not name or not client_id:
              return Response("Missing name or clientId", status_code=400)
              
-        result = await delete_interakt_template(client_id, name)
+        result = await delete_meta_template(client_id, name)
         return {"success": True, "message": "Template deleted successfully", "data": result}
     except Exception as e:
         return Response(content=str(e), status_code=500)
