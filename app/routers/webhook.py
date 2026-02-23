@@ -41,8 +41,13 @@ async def verify_webhook(
     logger.warning(f"Webhook verification failed. Expected token: {verify_token}")
     return Response(status_code=400, content="Verification failed")
 
+from app.schemas import MetaWebhookPayload
+
 @router.post("/webhook")
-async def webhook_event(request: Request):
+async def webhook_event(request: Request, body: MetaWebhookPayload = Body(None)):
+    # MetaWebhookPayload enables Swagger documentation.
+    # We still allow Body(None) and use request.body() for internal fallback or raw logging if needed.
+    
     # Get raw body first to check if empty
     raw_body = await request.body()
     
@@ -51,15 +56,17 @@ async def webhook_event(request: Request):
         logger.info("Received empty webhook POST request - likely a test")
         return Response(status_code=200, content="Webhook endpoint is active")
     
-    # Try to parse JSON
-    try:
-        body = await request.json()
-    except Exception as e:
-        logger.error(f"Failed to parse webhook JSON: {e}. Raw body: {raw_body[:500]}")
-        return Response(status_code=400, content=f"Invalid JSON: {str(e)}")
+    # Try to use body object if provided and valid, else parse raw_body
+    if body:
+        body = body.dict()
+    else:
+        try:
+            body = await request.json()
+        except Exception as e:
+            logger.error(f"Failed to parse webhook JSON: {e}. Raw body: {raw_body[:500]}")
+            return Response(status_code=400, content=f"Invalid JSON: {str(e)}")
 
     # Check if this is a proper Meta webhook format
-    # Meta format: { "object": "whatsapp_business_account", "entry": [...] }
     if not isinstance(body, dict):
         logger.error(f"Invalid webhook body: not a dict, got {type(body)}")
         await log_webhook(None, "invalid_payload", {"error": "Body is not a JSON object", "type": str(type(body))}, "ERROR")

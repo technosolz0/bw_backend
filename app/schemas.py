@@ -393,8 +393,55 @@ class ResponseModel(BaseModel):
     message: Optional[str] = None
     data: Optional[Any] = None
 
-# For lists
-class PagedResponseModel(ResponseModel):
-    total: Optional[int] = None
-    page: Optional[int] = None
-    limit: Optional[int] = None
+# --- New Documentation Schemas ---
+
+class WebhookMetadata(BaseModel):
+    display_phone_number: str
+    phone_number_id: str
+
+class WebhookValue(BaseModel):
+    messaging_product: str
+    metadata: WebhookMetadata
+    contacts: Optional[List[Dict[str, Any]]] = None
+    messages: Optional[List[Dict[str, Any]]] = None
+    statuses: Optional[List[Dict[str, Any]]] = None
+
+class WebhookChange(BaseModel):
+    value: WebhookValue
+    field: str
+
+class WebhookEntry(BaseModel):
+    id: str
+    changes: List[WebhookChange]
+
+class MetaWebhookPayload(BaseModel):
+    object: str
+    entry: List[WebhookEntry]
+
+class BroadcastStartRequest(BaseModel):
+    clientId: str
+    broadcastId: str
+
+class BroadcastCreateRequest(BaseModel):
+    clientId: str
+    templateId: Optional[str] = None
+    templateName: Optional[str] = None
+    language: Optional[str] = None
+    type: Optional[str] = None # Text, Media, Interactive
+    adminName: Optional[str] = None
+    attachmentId: Optional[str] = None
+    audienceType: Optional[int] = None
+    contacts: Optional[List[Dict[str, Any]]] = None # List of {mobileNo, bodyVariables}
+    headerVariables: Optional[Dict[str, Any]] = None
+    buttonVariables: Optional[List[Any]] = None
+    messageCost: Optional[float] = 0.0
+    totalCost: Optional[float] = 0.0
+
+class AnalyticsRequest(BaseModel):
+    clientId: str
+    filter: Optional[str] = "This Month"
+    customStart: Optional[str] = None
+    customEnd: Optional[str] = None
+
+class PhoneNumberRequest(BaseModel):
+    phoneNumber: str

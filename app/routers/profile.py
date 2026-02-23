@@ -11,11 +11,11 @@ import json
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+from fastapi import Query
+
 @router.get("/getWhatsAppBusinessProfile")
-async def get_profile(request: Request):
-    client_id = request.query_params.get("clientId")
-    if not client_id:
-        return Response("clientId required", status_code=400)
+async def get_profile(clientId: str = Query(...)):
+    client_id = clientId
     
     try:
         data = await get_whatsapp_business_profile(client_id)

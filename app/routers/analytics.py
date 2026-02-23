@@ -12,17 +12,20 @@ import asyncio
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+from fastapi import Query
+
 @router.get("/getConversationAnalytics")
-async def get_conversation_analytics(request: Request):
+async def get_conversation_analytics(
+    clientId: str = Query(...),
+    filter: str = Query("This Month"),
+    customStart: str = Query(None),
+    customEnd: str = Query(None)
+):
     try:
-        query_params = request.query_params
-        client_id = query_params.get("clientId")
-        filter_str = query_params.get("filter", "This Month")
-        custom_start = query_params.get("customStart")
-        custom_end = query_params.get("customEnd")
-        
-        if not client_id:
-             return Response("clientId is required", status_code=400)
+        client_id = clientId
+        filter_str = filter
+        custom_start = customStart
+        custom_end = customEnd
              
         secrets = await get_secrets(client_id)
         if not secrets:

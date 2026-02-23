@@ -8,16 +8,14 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+from app.schemas import BroadcastStartRequest, BroadcastCreateRequest
+
 @router.post("/startBroadcast")
-async def start_broadcast_endpoint(request: Request):
+async def start_broadcast_endpoint(body: BroadcastStartRequest):
     try:
-        body = await request.json()
-        client_id = body.get("clientId")
-        broadcast_id = body.get("broadcastId")
+        client_id = body.clientId
+        broadcast_id = body.broadcastId
         
-        if not client_id or not broadcast_id:
-             return Response("Missing clientId or broadcastId", status_code=400)
-             
         result = await start_broadcast(client_id, broadcast_id)
         return result
     except Exception as e:
@@ -25,15 +23,11 @@ async def start_broadcast_endpoint(request: Request):
         return Response(content=str(e), status_code=500)
 
 @router.post("/createBroadcast")
-async def create_broadcast_endpoint(request: Request):
+async def create_broadcast_endpoint(body: BroadcastCreateRequest):
     try:
-        body = await request.json()
-        client_id = body.get("clientId")
+        client_id = body.clientId
         
-        if not client_id:
-             return Response("Missing clientId", status_code=400)
-             
-        broadcast_id = await create_broadcast_record(client_id, body)
+        broadcast_id = await create_broadcast_record(client_id, body.dict(exclude_none=True))
         return {"success": True, "broadcastId": broadcast_id}
     except Exception as e:
         logger.error(f"Error creating broadcast: {e}")
