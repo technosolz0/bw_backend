@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi import APIRouter, Request, Response, HTTPException, Query, Body
 from fastapi.responses import PlainTextResponse
 from app.services.webhook_handlers import (
     log_webhook,
@@ -14,7 +14,6 @@ import os
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from fastapi import Query
 
 @router.get("/webhook")
 async def verify_webhook(

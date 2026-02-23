@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi import APIRouter, Request, Response, HTTPException, Query
 from app.services.analytics import (
     get_time_range_params,
     fetch_conversation_analytics,
@@ -12,7 +12,6 @@ import asyncio
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from fastapi import Query
 
 @router.get("/getConversationAnalytics")
 async def get_conversation_analytics(

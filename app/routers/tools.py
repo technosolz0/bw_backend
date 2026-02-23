@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Query
 import phonenumbers
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from fastapi import Query
 
 @router.get("/getPhoneNumber")
 async def get_phone_number(phoneNumber: str = Query(...)):
