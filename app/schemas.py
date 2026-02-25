@@ -15,6 +15,11 @@ class ClientBase(BaseModel):
     name: Optional[str] = "Messaging Portal"
     logo_url: Optional[str] = None
     is_crm_enabled: Optional[bool] = False
+    admin_limit: Optional[int] = 2
+    is_premium: Optional[bool] = True
+    subscription_expiry: Optional[datetime] = None
+    status: Optional[str] = "Approved"
+    wallet_balance: Optional[float] = 0.0
 
 class ClientCreate(ClientBase):
     pass
