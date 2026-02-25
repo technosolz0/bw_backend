@@ -53,8 +53,8 @@ class RoleUpdate(BaseModel):
 
 class Role(RoleBase):
     id: str
-    created_at: datetime.datetime
-    updated_at: Optional[datetime.datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         orm_mode = True
