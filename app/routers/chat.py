@@ -7,9 +7,9 @@ from app.services.chat import (
 )
 from app.services.websocket_manager import manager
 from app.database import AsyncSessionLocal
-from app.models.sql_models import Chat, Message as MessageModel
+from app.models.sql_models import Chat, Message as MessageModel, Contact
 from sqlalchemy.future import select
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 import logging
 import json
 

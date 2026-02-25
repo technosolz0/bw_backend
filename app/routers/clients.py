@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Query, HTTPException, status
+from fastapi import APIRouter, Query, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import AsyncSessionLocal
-from app.models.sql_models import Client, Charge
+from app.models.sql_models import Client, Charge, Wallet
 from app.schemas import ResponseModel, ClientCreate, ClientUpdate
 import logging
 import datetime
