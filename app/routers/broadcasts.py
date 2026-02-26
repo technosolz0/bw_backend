@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, BackgroundTasks, Body, Query
+from fastapi import APIRouter, Request, Response, BackgroundTasks, Body, Query, HTTPException
 from app.services.broadcasts import start_broadcast, create_broadcast_record
 from app.services.whatsapp_meta import get_secrets
 from app.database import AsyncSessionLocal
@@ -9,7 +9,7 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest
+from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest, BroadcastUpdate
 
 @router.post("/sendTemplateMessage")
 async def send_template_message_endpoint(body: SendTemplateMessageRequest):
