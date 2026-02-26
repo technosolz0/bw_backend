@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Query, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import joinedload
 from app.database import AsyncSessionLocal
-from app.models.sql_models import Admin
+from app.models.sql_models import Admin, Client
 from app.schemas import AdminCreate, AdminUpdate, Admin as AdminSchema
 import logging
 import datetime
@@ -15,7 +16,10 @@ async def get_admins(clientId: str = Query(...)):
     async with AsyncSessionLocal() as session:
         try:
             result = await session.execute(
-                select(Admin).where(Admin.client_id == clientId).order_by(Admin.created_at)
+                select(Admin)
+                .options(joinedload(Admin.client))
+                .where(Admin.client_id == clientId)
+                .order_by(Admin.created_at)
             )
             admins = result.scalars().all()
             return {"success": True, "data": admins}
@@ -28,7 +32,9 @@ async def get_admin_by_id(adminId: str = Query(...)):
     async with AsyncSessionLocal() as session:
         try:
             result = await session.execute(
-                select(Admin).where(Admin.id == adminId)
+                select(Admin)
+                .options(joinedload(Admin.client))
+                .where(Admin.id == adminId)
             )
             admin = result.scalars().first()
             if not admin:

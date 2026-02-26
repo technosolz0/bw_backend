@@ -29,6 +29,7 @@ def init_firebase():
 async def sync_chat_metadata(chat_id: str, client_id: str, metadata: Dict[str, Any]):
     """Sync chat metadata (last message, update time, etc.) to Firestore."""
     if not db:
+        logger.debug("Firestore sync disabled: db not initialized.")
         return
     
     try:
@@ -41,12 +42,14 @@ async def sync_chat_metadata(chat_id: str, client_id: str, metadata: Dict[str, A
         metadata["clientId"] = client_id
         
         chat_ref.set(metadata, merge=True)
+        logger.info(f"✅ Chat metadata synced to Firestore for chat {chat_id}")
     except Exception as e:
-        logger.error(f"Error syncing chat metadata to Firestore: {e}")
+        logger.error(f"❌ Error syncing chat metadata for {chat_id} to Firestore: {e}", exc_info=True)
 
 async def sync_message(chat_id: str, client_id: str, message_id: str, message_data: Dict[str, Any]):
     """Sync a single message to Firestore."""
     if not db:
+        logger.debug("Firestore sync disabled: db not initialized.")
         return
     
     try:
@@ -55,13 +58,15 @@ async def sync_message(chat_id: str, client_id: str, message_id: str, message_da
         # Convert datetime objects to Firestore-compatible if necessary
         # message_data["timestamp"] should be handled by caller or here
         if "timestamp" in message_data and isinstance(message_data["timestamp"], datetime.datetime):
-             # Firestore handles datetime, but ensure it's not naive if possible
-             pass
+             # Ensure it's not naive for Firestore
+             if message_data["timestamp"].tzinfo is None:
+                 message_data["timestamp"] = message_data["timestamp"].replace(tzinfo=datetime.timezone.utc)
         
         message_data["clientId"] = client_id
         message_ref.set(message_data)
+        logger.info(f"✅ Message {message_id} synced to Firestore for chat {chat_id}")
     except Exception as e:
-        logger.error(f"Error syncing message to Firestore: {e}")
+        logger.error(f"❌ Error syncing message {message_id} to Firestore: {e}", exc_info=True)
 
 async def sync_message_status(chat_id: str, message_id: str, status: str, timestamp: Optional[datetime.datetime] = None):
     """Update message status in Firestore."""

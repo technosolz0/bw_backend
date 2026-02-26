@@ -422,8 +422,8 @@ async def handle_chat_message(client_id, value):
                     session.add(new_msg)
                     await session.commit()
 
-                    # Firestore Sync - Message
-                    await sync_message(contact_id, actual_client_id, message_id, {
+                    # 4. Sync to Firestore for real-time app update
+                    message_data = {
                         "content": message_text,
                         "timestamp": get_ist_time(),
                         "isFromMe": False,
@@ -435,7 +435,8 @@ async def handle_chat_message(client_id, value):
                         "fileName": file_name,
                         "mimeType": mime_type,
                         "caption": caption
-                    })
+                    }
+                    await sync_message(contact_id, actual_client_id, message_id, message_data)
                 
                 logger.info(f"Message stored successfully for contact {contact_id}")
 

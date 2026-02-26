@@ -60,6 +60,7 @@ class Role(RoleBase):
     id: str
     created_at: datetime
     updated_at: Optional[datetime] = None
+    client: Optional[Client] = None
 
     class Config:
         from_attributes = True
@@ -556,6 +557,7 @@ class Admin(AdminBase):
     last_logged_in: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    client: Optional[Client] = None
 
     class Config:
         from_attributes = True

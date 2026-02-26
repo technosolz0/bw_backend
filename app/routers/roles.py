@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Query, HTTPException, status, Body
 from sqlalchemy.future import select
+from sqlalchemy.orm import joinedload
 from app.database import AsyncSessionLocal
-from app.models.sql_models import Role, Admin
+from app.models.sql_models import Role, Admin, Client
 from app.schemas import RoleCreate, RoleUpdate, Role as RoleSchema
 import logging
 import datetime
@@ -15,7 +16,10 @@ async def get_roles(clientId: str = Query(...)):
     async with AsyncSessionLocal() as session:
         try:
             result = await session.execute(
-                select(Role).where(Role.client_id == clientId).order_by(Role.created_at)
+                select(Role)
+                .options(joinedload(Role.client))
+                .where(Role.client_id == clientId)
+                .order_by(Role.created_at)
             )
             roles = result.scalars().all()
             return {"success": True, "data": roles}
