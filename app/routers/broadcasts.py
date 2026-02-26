@@ -81,6 +81,26 @@ async def create_broadcast_endpoint(body: BroadcastCreateRequest):
         logger.error(f"Error creating broadcast: {e}")
         return Response(content=str(e), status_code=500)
 
+@router.patch("/patchBroadcast")
+async def patch_broadcast(broadcastId: str = Query(...), body: BroadcastUpdate = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                 select(Broadcast).where(Broadcast.id == broadcastId)
+            )
+            broadcast = result.scalars().first()
+            if not broadcast:
+                raise HTTPException(status_code=404, detail="Broadcast not found")
+            
+            for key, value in body.dict(exclude_none=True).items():
+                setattr(broadcast, key, value)
+            
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching broadcast: {e}")
+            return Response(content=str(e), status_code=500)
+
 @router.get("/getBroadcasts")
 async def get_broadcasts(clientId: str):
     async with AsyncSessionLocal() as session:

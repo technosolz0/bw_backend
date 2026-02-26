@@ -140,6 +140,40 @@ async def update_client(clientId: str = Query(...), client_data: ClientUpdate = 
             logger.error(f"Error updating client: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+@router.patch("/patchClient")
+async def patch_client(clientId: str = Query(...), client_data: ClientUpdate = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Client).where(Client.client_id == clientId)
+            )
+            client = result.scalars().first()
+            if not client:
+                raise HTTPException(status_code=404, detail="Client not found")
+            
+            for key, value in client_data.dict(exclude_none=True).items():
+                if key != "wallet_balance":
+                    setattr(client, key, value)
+            
+            # Handle wallet update
+            if client_data.wallet_balance is not None:
+                wallet_result = await session.execute(
+                    select(Wallet).where(Wallet.client_id == clientId)
+                )
+                wallet = wallet_result.scalars().first()
+                if wallet:
+                    wallet.balance = client_data.wallet_balance
+                else:
+                    new_wallet = Wallet(client_id=clientId, balance=client_data.wallet_balance)
+                    session.add(new_wallet)
+
+            client.updated_at = datetime.datetime.now()
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching client: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
 @router.delete("/deleteClient")
 async def delete_client(clientId: str = Query(...)):
     async with AsyncSessionLocal() as session:

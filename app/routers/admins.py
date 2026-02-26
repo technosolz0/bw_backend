@@ -80,6 +80,27 @@ async def update_admin(adminId: str = Query(...), admin_data: AdminUpdate = Body
             logger.error(f"Error updating admin: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+@router.patch("/patchAdmin")
+async def patch_admin(adminId: str = Query(...), admin_data: AdminUpdate = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Admin).where(Admin.id == adminId)
+            )
+            admin = result.scalars().first()
+            if not admin:
+                raise HTTPException(status_code=404, detail="Admin not found")
+            
+            for key, value in admin_data.dict(exclude_none=True).items():
+                setattr(admin, key, value)
+            
+            admin.updated_at = datetime.datetime.now()
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching admin: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
 @router.delete("/deleteAdmin")
 async def delete_admin(adminId: str = Query(...)):
     async with AsyncSessionLocal() as session:

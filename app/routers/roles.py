@@ -82,6 +82,49 @@ async def update_role(roleId: str = Query(...), role_data: RoleUpdate = Body(...
             logger.error(f"Error updating role: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+@router.patch("/patchRole")
+async def patch_role(roleId: str = Query(...), role_data: RoleUpdate = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Role).where(Role.id == roleId)
+            )
+            role = result.scalars().first()
+            if not role:
+                raise HTTPException(status_code=404, detail="Role not found")
+            
+            old_role_name = role.role_name
+            
+            for key, value in role_data.dict(exclude_none=True).items():
+                setattr(role, key, value)
+            
+            role.updated_at = datetime.datetime.now()
+            
+            # If role name changed, update all admins with this role
+            if role_data.role_name and role_data.role_name != old_role_name:
+                admin_result = await session.execute(
+                    select(Admin).where(Admin.role == old_role_name, Admin.client_id == role.client_id)
+                )
+                admins = admin_result.scalars().all()
+                for admin in admins:
+                    admin.role = role_data.role_name
+                    admin.assigned_pages = role_data.assigned_pages or role.assigned_pages
+            
+            # Update permissions for admins with this role
+            else:
+                admin_result = await session.execute(
+                    select(Admin).where(Admin.role == role.role_name, Admin.client_id == role.client_id)
+                )
+                admins = admin_result.scalars().all()
+                for admin in admins:
+                    admin.assigned_pages = role.assigned_pages
+
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching role: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
 @router.delete("/deleteRole")
 async def delete_role(roleId: str = Query(...)):
     async with AsyncSessionLocal() as session:

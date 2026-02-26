@@ -46,6 +46,32 @@ async def update_chat_endpoint(body: UpdateChatRequest = Body(...)):
             logger.error(f"Error updating chat: {e}")
             return Response(content=str(e), status_code=500)
 
+@router.patch("/patchChat")
+async def patch_chat_endpoint(body: UpdateChatRequest = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Chat).where(Chat.id == body.chatId, Chat.client_id == body.clientId)
+            )
+            chat = result.scalars().first()
+            if not chat:
+                raise HTTPException(status_code=404, detail="Chat not found")
+            
+            if body.isActive is not None:
+                chat.is_active = body.isActive
+            if body.unRead is not None:
+                chat.un_read = body.unRead
+            if body.isFavourite is not None:
+                chat.is_favourite = body.isFavourite
+            if body.assignedAdmins is not None:
+                chat.assigned_admins = body.assignedAdmins
+                
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching chat: {e}")
+            return Response(content=str(e), status_code=500)
+
 @router.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await manager.connect(client_id, websocket)

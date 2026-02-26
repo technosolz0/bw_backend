@@ -27,7 +27,30 @@ def get_ist_time():
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from app.schemas import MilestoneTriggerRequest
+from app.schemas import MilestoneTriggerRequest, MilestoneSchedulerUpdate
+
+@router.patch("/patchMilestoneScheduler")
+async def patch_scheduler(schedulerId: str = Query(...), clientId: str = Query(...), body: MilestoneSchedulerUpdate = Body(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(MilestoneScheduler).where(
+                    MilestoneScheduler.id == schedulerId,
+                    MilestoneScheduler.client_id == clientId
+                )
+            )
+            scheduler = result.scalars().first()
+            if not scheduler:
+                raise HTTPException(status_code=404, detail="Scheduler not found")
+            
+            for key, value in body.dict(exclude_none=True).items():
+                setattr(scheduler, key, value)
+            
+            await session.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error patching scheduler: {e}")
+            return Response(content=str(e), status_code=500)
 
 @router.post("/sendMilestoneMessages")
 async def send_milestone_messages(body: MilestoneTriggerRequest):
