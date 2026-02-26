@@ -10,6 +10,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest, BroadcastUpdate
+from app.services.firebase_service import sync_broadcast_stats
 
 @router.post("/sendTemplateMessage")
 async def send_template_message_endpoint(body: SendTemplateMessageRequest):
@@ -96,6 +97,16 @@ async def patch_broadcast(broadcastId: str = Query(...), body: BroadcastUpdate =
                 setattr(broadcast, key, value)
             
             await session.commit()
+            
+            # Firestore Sync
+            await sync_broadcast_stats(broadcastId, broadcast.client_id, {
+                "sent": broadcast.sent,
+                "delivered": broadcast.delivered,
+                "read": broadcast.read,
+                "failed": broadcast.failed,
+                "status": broadcast.status
+            })
+            
             return {"success": True}
         except Exception as e:
             logger.error(f"Error patching broadcast: {e}")

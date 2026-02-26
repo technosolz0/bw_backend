@@ -15,7 +15,8 @@ import aiofiles
 
 from datetime import timezone, timedelta
 
-logger = logging.getLogger(__name__)
+from app.services.firebase_service import sync_chat_metadata, sync_message
+import logging
 
 def get_ist_time():
     return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
@@ -214,6 +215,25 @@ async def send_whatsapp_message_helper(request_body: dict):
                     chat.last_message_time = get_ist_time()
                 
                 await session.commit()
+
+                # Firestore Sync - Chat & Message
+                await sync_chat_metadata(chat_id, client_id, {
+                    "lastMessage": message_content,
+                    "lastMessageTime": get_ist_time(),
+                })
+                
+                await sync_message(chat_id, client_id, whatsapp_message_id, {
+                    "content": message_content,
+                    "timestamp": get_ist_time(),
+                    "isFromMe": True,
+                    "senderName": "Admin",
+                    "status": "sent",
+                    "whatsappMessageId": whatsapp_message_id,
+                    "messageType": media_type,
+                    "mediaUrl": media_url,
+                    "fileName": file_name,
+                    "caption": caption
+                })
 
         return {
             "statusCode": 200,

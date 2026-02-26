@@ -70,9 +70,12 @@ async def check_maintenance_mode(request: Request, call_next):
 
     return await call_next(request)
 
+from app.services.firebase_service import init_firebase
+
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+    init_firebase()
 
 # Mount static files for local media storage
 os.makedirs("static", exist_ok=True)

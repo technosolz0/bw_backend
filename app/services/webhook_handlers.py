@@ -9,6 +9,12 @@ from app.services.chat import (
     mark_message_as_read,
     refund_message_cost
 )
+from app.services.firebase_service import (
+    sync_chat_metadata, 
+    sync_message, 
+    sync_message_status, 
+    sync_broadcast_stats
+)
 from app.services.gemini import generate_content_with_file_search
 from sqlalchemy.future import select
 from sqlalchemy import update, or_, and_
@@ -324,6 +330,16 @@ async def handle_chat_message(client_id, value):
 
                 await session.commit()
                 
+                # Firestore Sync - Chat Metadata
+                await sync_chat_metadata(contact_id, actual_client_id, {
+                    "name": contact_name,
+                    "phoneNumber": full_phone_number,
+                    "lastMessage": message_text,
+                    "lastMessageTime": get_ist_time(),
+                    "unRead": chat.un_read,
+                    "isActive": chat.is_active
+                })
+                
                 # AI Response Logic
                 if ai_response_enabled:
                     await mark_message_as_read(secrets, message_id, True)
@@ -405,6 +421,21 @@ async def handle_chat_message(client_id, value):
                     )
                     session.add(new_msg)
                     await session.commit()
+
+                    # Firestore Sync - Message
+                    await sync_message(contact_id, actual_client_id, message_id, {
+                        "content": message_text,
+                        "timestamp": get_ist_time(),
+                        "isFromMe": False,
+                        "senderName": contact_name,
+                        "status": "read" if has_ai_response else "delivered",
+                        "whatsappMessageId": message_id,
+                        "messageType": message_type,
+                        "mediaUrl": media_url,
+                        "fileName": file_name,
+                        "mimeType": mime_type,
+                        "caption": caption
+                    })
                 
                 logger.info(f"Message stored successfully for contact {contact_id}")
 
@@ -704,6 +735,15 @@ async def handle_message_status_update(client_id, value):
                 
                 await session.commit()
                 
+                # Firestore Sync - Broadcast Stats
+                await sync_broadcast_stats(broadcast.id, client_id, {
+                    "sent": broadcast.sent,
+                    "delivered": broadcast.delivered,
+                    "read": broadcast.read,
+                    "failed": broadcast.failed,
+                    "status": broadcast.status
+                })
+                
                 # Broadcast status update for broadcast messages
                 await manager.broadcast_to_client(client_id, {
                     "type": "status_update",
@@ -738,6 +778,10 @@ async def handle_message_status_update(client_id, value):
                         await increment_daily_stats(client_id, today, 'read')
                     
                     await session.commit()
+
+                    # Firestore Sync - Message Status (Individual Chat)
+                    # We need the chat_id from the message
+                    await sync_message_status(message.chat_id, whatsapp_message_id, status, status_timestamp)
 
                     # Broadcast status update for individual chat messages
                     await manager.broadcast_to_client(client_id, {
