@@ -18,6 +18,8 @@ from datetime import timezone, timedelta
 from app.services.firebase_service import sync_chat_metadata, sync_message
 import logging
 
+logger = logging.getLogger(__name__)
+
 def get_ist_time():
     return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
@@ -152,14 +154,8 @@ async def send_whatsapp_message_helper(request_body: dict):
         await increment_daily_stats(client_id, today, "sent")
         logger.info(f"📊 Incremented sent count for {today}")
 
-        # Store message in PostgreSQL
         if chat_id:
-            async with AsyncSessionLocal() as session:
-                # 1. Ensure Contact exists
-                # We assume contact_id corresponds to the phone number for now, as is common in this setup
-                # If chat_id is provided, it might map to a specific contact.
-                # However, without explicit contact_id in request, we use formatted_phone.
-                contact_id = formatted_phone
+            logger.info(f"Manual send message to chatId: {chat_id}, phoneNumber: {phone_number}")
                 
                 # Check Contact
                 contact_res = await session.execute(select(Contact).where(Contact.client_id == client_id, Contact.id == contact_id))
@@ -175,65 +171,80 @@ async def send_whatsapp_message_helper(request_body: dict):
                     session.add(contact)
                     await session.flush() # Ensure ID is available (though we set it manually)
 
-                # 2. Ensure Chat exists
-                chat_res = await session.execute(select(Chat).where(Chat.client_id == client_id, Chat.id == chat_id))
-                chat = chat_res.scalars().first()
-                if not chat:
-                    chat = Chat(
-                        id=chat_id,
-                        client_id=client_id,
-                        contact_id=contact_id,
-                        phone_number=phone_number,
-                        name=formatted_phone, # Placeholder name
-                        is_active=True,
-                        un_read=False,
-                        created_at=get_ist_time()
-                    )
-                    session.add(chat)
-                
-                # 3. Create Message
-                new_msg = Message(
-                    chat_id=chat_id,
+        async with AsyncSessionLocal() as session:
+            # 1. Determine Contact/Chat ID
+            # Priority: 
+            # a) Use existing contact for this phone number
+            # b) Use provided chat_id if given (and potentially link to contact)
+            # c) Generate new UUID
+            
+            contact_res = await session.execute(
+                select(Contact).where(Contact.client_id == client_id, Contact.phone_number == phone_number)
+            )
+            contact = contact_res.scalars().first()
+            
+            if contact:
+                contact_id = contact.id
+            else:
+                # If we have a chat_id but no contact, we might use chat_id as contact_id for new contact
+                # if it looks like a UUID or a custom string.
+                # But for consistency with webhooks:
+                contact_id = chat_id if (chat_id and chat_id != "test") else str(uuid.uuid4())
+                contact = Contact(
+                    id=contact_id,
                     client_id=client_id,
-                    content=message_content,
-                    timestamp=get_ist_time(),
-                    is_from_me=True,
-                    sender_name="Admin",
-                    sender_avatar=None,
-                    status="sent",
-                    whatsapp_message_id=whatsapp_message_id,
-                    message_type=media_type,
-                    media_url=media_url,
-                    file_name=file_name,
-                    caption=caption
+                    phone_number=phone_number,
+                    f_name="",
+                    l_name="",
+                    created_at=get_ist_time()
                 )
-                session.add(new_msg)
-                
-                # Update Chat last message
-                if chat:
-                    chat.last_message = message_content
-                    chat.last_message_time = get_ist_time()
-                
-                await session.commit()
+                session.add(contact)
+                await session.flush()
 
-                # Firestore Sync - Chat & Message
-                await sync_chat_metadata(chat_id, client_id, {
-                    "lastMessage": message_content,
-                    "lastMessageTime": get_ist_time(),
-                })
-                
-                await sync_message(chat_id, client_id, whatsapp_message_id, {
-                    "content": message_content,
-                    "timestamp": get_ist_time(),
-                    "isFromMe": True,
-                    "senderName": "Admin",
-                    "status": "sent",
-                    "whatsappMessageId": whatsapp_message_id,
-                    "messageType": media_type,
-                    "mediaUrl": media_url,
-                    "fileName": file_name,
-                    "caption": caption
-                })
+            # The chatId in this system is typically the contactId
+            effective_chat_id = contact_id
+            
+            # 2. Ensure Chat exists
+            chat_res = await session.execute(
+                select(Chat).where(Chat.client_id == client_id, Chat.id == effective_chat_id)
+            )
+            chat = chat_res.scalars().first()
+            
+            if not chat:
+                chat = Chat(
+                    id=effective_chat_id,
+                    client_id=client_id,
+                    contact_id=contact_id,
+                    phone_number=phone_number,
+                    name=formatted_phone,
+                    is_active=True,
+                    un_read=False,
+                    created_at=get_ist_time()
+                )
+                session.add(chat)
+            
+            # 3. Create Message
+            new_msg = Message(
+                chat_id=effective_chat_id,
+                client_id=client_id,
+                content=message_content,
+                timestamp=get_ist_time(),
+                is_from_me=True,
+                sender_name="Admin",
+                status="sent",
+                whatsapp_message_id=whatsapp_message_id,
+                message_type=media_type,
+                media_url=media_url,
+                file_name=file_name,
+                caption=caption
+            )
+            session.add(new_msg)
+            
+            # Update Chat last message
+            chat.last_message = message_content
+            chat.last_message_time = get_ist_time()
+            
+            await session.commit()
 
         return {
             "statusCode": 200,
