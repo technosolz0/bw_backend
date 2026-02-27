@@ -33,16 +33,15 @@ async def sync_chat_metadata(chat_id: str, client_id: str, metadata: Dict[str, A
         return
     
     try:
-        # Use a flat structure or nested? Reference project used 'chats' collection
-        chat_ref = db.collection("chats").document(chat_id)
+        # User requested structure: chats -> clientId -> data -> chatId
+        chat_ref = db.collection("chats").document(client_id).collection("data").document(chat_id)
         
-        # Add client_id filter if needed, but chat_id is usually unique per contact
         # Adding metadata
         metadata["updatedAt"] = firestore.SERVER_TIMESTAMP
         metadata["clientId"] = client_id
         
         chat_ref.set(metadata, merge=True)
-        logger.info(f"✅ Chat metadata synced to Firestore for chat {chat_id}")
+        logger.info(f"✅ Chat metadata synced to Firestore for client {client_id}, chat {chat_id}")
     except Exception as e:
         logger.error(f"❌ Error syncing chat metadata for {chat_id} to Firestore: {e}", exc_info=True)
 
@@ -53,7 +52,8 @@ async def sync_message(chat_id: str, client_id: str, message_id: str, message_da
         return
     
     try:
-        message_ref = db.collection("chats").document(chat_id).collection("messages").document(message_id)
+        # User requested structure: chats -> clientId -> data -> chatId -> messages -> messageId
+        message_ref = db.collection("chats").document(client_id).collection("data").document(chat_id).collection("messages").document(message_id)
         
         # Convert datetime objects to Firestore-compatible if necessary
         # message_data["timestamp"] should be handled by caller or here
@@ -64,17 +64,18 @@ async def sync_message(chat_id: str, client_id: str, message_id: str, message_da
         
         message_data["clientId"] = client_id
         message_ref.set(message_data)
-        logger.info(f"✅ Message {message_id} synced to Firestore for chat {chat_id}")
+        logger.info(f"✅ Message {message_id} synced to Firestore for client {client_id}, chat {chat_id}")
     except Exception as e:
         logger.error(f"❌ Error syncing message {message_id} to Firestore: {e}", exc_info=True)
 
-async def sync_message_status(chat_id: str, message_id: str, status: str, timestamp: Optional[datetime.datetime] = None):
+async def sync_message_status(chat_id: str, client_id: str, message_id: str, status: str, timestamp: Optional[datetime.datetime] = None):
     """Update message status in Firestore."""
     if not db:
         return
     
     try:
-        message_ref = db.collection("chats").document(chat_id).collection("messages").document(message_id)
+        # User requested structure: chats -> clientId -> data -> chatId -> messages -> messageId
+        message_ref = db.collection("chats").document(client_id).collection("data").document(chat_id).collection("messages").document(message_id)
         
         updates = {"status": status}
         if status == "delivered":

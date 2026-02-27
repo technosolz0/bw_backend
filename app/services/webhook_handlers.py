@@ -782,7 +782,7 @@ async def handle_message_status_update(client_id, value):
 
                     # Firestore Sync - Message Status (Individual Chat)
                     # We need the chat_id from the message
-                    await sync_message_status(message.chat_id, whatsapp_message_id, status, status_timestamp)
+                    await sync_message_status(message.chat_id, client_id, whatsapp_message_id, status, status_timestamp)
 
                     # Broadcast status update for individual chat messages
                     await manager.broadcast_to_client(client_id, {
