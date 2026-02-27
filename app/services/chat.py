@@ -232,6 +232,7 @@ async def send_whatsapp_message_helper(request_body: dict):
 
             # Firestore Sync - Chat & Message
             try:
+                print(f"DEBUG: Starting Firestore sync for {effective_chat_id}")
                 await sync_chat_metadata(effective_chat_id, client_id, {
                     "lastMessage": message_content,
                     "lastMessageTime": get_ist_time(),
@@ -254,6 +255,7 @@ async def send_whatsapp_message_helper(request_body: dict):
                 print(f"✅ Successfully stored in Firebase: Message {whatsapp_message_id}")
                 logger.info(f"✅ Successfully stored in Firebase: Message {whatsapp_message_id}")
             except Exception as fe:
+                print(f"DEBUG: ❌ Firebase Sync Error in chat.py: {fe}")
                 logger.error(f"❌ Firebase Sync Error: {fe}")
 
         return {

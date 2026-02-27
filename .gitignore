@@ -156,3 +156,5 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+firebase_key.json
+.firebase_key.json
