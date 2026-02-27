@@ -240,7 +240,7 @@ async def send_whatsapp_message_helper(request_body: dict):
     except Exception as e:
         error_msg = str(e)
         if hasattr(e, 'response'):
-             error_msg = e.response.text
+            error_msg = e.response.text
         logger.error(f"INTERAKT ERROR: {error_msg}")
         return {
             "statusCode": 500,
