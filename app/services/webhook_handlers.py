@@ -339,6 +339,7 @@ async def handle_chat_message(client_id, value):
                     "unRead": chat.un_read,
                     "isActive": chat.is_active
                 })
+                logger.info(f"✅ Chat metadata synced for {contact_id}")
                 
                 # AI Response Logic
                 if ai_response_enabled:
@@ -437,8 +438,10 @@ async def handle_chat_message(client_id, value):
                         "caption": caption
                     }
                     await sync_message(contact_id, actual_client_id, message_id, message_data)
+                    print(f"✅ Successfully stored in Firebase: Message {message_id} for chat {contact_id}")
+                    logger.info(f"✅ Successfully stored in Firebase: Message {message_id} for chat {contact_id}")
                 
-                logger.info(f"Message stored successfully for contact {contact_id}")
+                logger.info(f"Message stored successfully in DB for contact {contact_id}")
 
                 # Broadcast to connected clients for real-time update
                 await manager.broadcast_to_client(actual_client_id, {

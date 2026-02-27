@@ -230,6 +230,32 @@ async def send_whatsapp_message_helper(request_body: dict):
             
             await session.commit()
 
+            # Firestore Sync - Chat & Message
+            try:
+                await sync_chat_metadata(effective_chat_id, client_id, {
+                    "lastMessage": message_content,
+                    "lastMessageTime": get_ist_time(),
+                    "phoneNumber": phone_number,
+                    "name": chat.name
+                })
+                
+                await sync_message(effective_chat_id, client_id, whatsapp_message_id, {
+                    "content": message_content,
+                    "timestamp": get_ist_time(),
+                    "isFromMe": True,
+                    "senderName": "Admin",
+                    "status": "sent",
+                    "whatsappMessageId": whatsapp_message_id,
+                    "messageType": media_type,
+                    "mediaUrl": media_url,
+                    "fileName": file_name,
+                    "caption": caption
+                })
+                print(f"✅ Successfully stored in Firebase: Message {whatsapp_message_id}")
+                logger.info(f"✅ Successfully stored in Firebase: Message {whatsapp_message_id}")
+            except Exception as fe:
+                logger.error(f"❌ Firebase Sync Error: {fe}")
+
         return {
             "statusCode": 200,
             "success": True,
