@@ -35,6 +35,11 @@ class ClientUpdate(BaseModel):
     name: Optional[str] = None
     logo_url: Optional[str] = None
     is_crm_enabled: Optional[bool] = None
+    is_premium: Optional[bool] = None
+    admin_limit: Optional[int] = None
+    subscription_expiry: Optional[datetime] = None
+    status: Optional[str] = None
+    wallet_balance: Optional[float] = None
 
 class Client(ClientBase):
     created_at: Optional[datetime] = None

@@ -20,18 +20,21 @@ async def get_client_details(clientId: str = Query(...)):
             client = result.scalars().first()
             
             if not client:
-                # Return default values if client not found, to match Flutter logic
                 return {
-                    "name": "Messaging Portal",
+                    "name": None,
                     "logoUrl": "",
-                    "isCRMEnabled": False
+                    "isCRMEnabled": False,
+                    "adminLimit": 0
                 }
                 
             return {
                 "name": client.name,
                 "logoUrl": client.logo_url or "",
                 "isCRMEnabled": client.is_crm_enabled,
-                "adminLimit": getattr(client, 'admin_limit', 0)
+                "adminLimit": getattr(client, 'admin_limit', 0),
+                "isPremium": getattr(client, 'is_premium', False),
+                "subscriptionExpiry": client.subscription_expiry.isoformat() if client.subscription_expiry else None,
+                "status": client.status
             }
         except Exception as e:
             logger.error(f"Error fetching client details: {e}")
@@ -117,27 +120,29 @@ async def update_client(clientId: str = Query(...), client_data: ClientUpdate = 
             if not client:
                 raise HTTPException(status_code=404, detail="Client not found")
             
-            for key, value in client_data.dict(exclude_none=True).items():
-                if key != "wallet_balance":
+            update_dict = client_data.dict(exclude_none=True)
+            for key, value in update_dict.items():
+                if key != "wallet_balance" and hasattr(client, key):
                     setattr(client, key, value)
             
             # Handle wallet update
-            if client_data.wallet_balance is not None:
+            if "wallet_balance" in update_dict:
                 wallet_result = await session.execute(
                     select(Wallet).where(Wallet.client_id == clientId)
                 )
                 wallet = wallet_result.scalars().first()
                 if wallet:
-                    wallet.balance = client_data.wallet_balance
+                    wallet.balance = update_dict["wallet_balance"]
                 else:
-                    new_wallet = Wallet(client_id=clientId, balance=client_data.wallet_balance)
+                    new_wallet = Wallet(client_id=clientId, balance=update_dict["wallet_balance"])
                     session.add(new_wallet)
 
-            client.updated_at = datetime.datetime.now()
+            client.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
             return {"success": True}
         except Exception as e:
             logger.error(f"Error updating client: {e}")
+            await session.rollback()
             raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/patchClient")
@@ -151,27 +156,29 @@ async def patch_client(clientId: str = Query(...), client_data: ClientUpdate = B
             if not client:
                 raise HTTPException(status_code=404, detail="Client not found")
             
-            for key, value in client_data.dict(exclude_none=True).items():
-                if key != "wallet_balance":
+            update_dict = client_data.dict(exclude_none=True)
+            for key, value in update_dict.items():
+                if key != "wallet_balance" and hasattr(client, key):
                     setattr(client, key, value)
             
             # Handle wallet update
-            if client_data.wallet_balance is not None:
+            if "wallet_balance" in update_dict:
                 wallet_result = await session.execute(
                     select(Wallet).where(Wallet.client_id == clientId)
                 )
                 wallet = wallet_result.scalars().first()
                 if wallet:
-                    wallet.balance = client_data.wallet_balance
+                    wallet.balance = update_dict["wallet_balance"]
                 else:
-                    new_wallet = Wallet(client_id=clientId, balance=client_data.wallet_balance)
+                    new_wallet = Wallet(client_id=clientId, balance=update_dict["wallet_balance"])
                     session.add(new_wallet)
 
-            client.updated_at = datetime.datetime.now()
+            client.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
             return {"success": True}
         except Exception as e:
             logger.error(f"Error patching client: {e}")
+            await session.rollback()
             raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/deleteClient")
