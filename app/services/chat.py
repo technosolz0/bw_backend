@@ -154,22 +154,6 @@ async def send_whatsapp_message_helper(request_body: dict):
         await increment_daily_stats(client_id, today, "sent")
         logger.info(f"📊 Incremented sent count for {today}")
 
-        if chat_id:
-            logger.info(f"Manual send message to chatId: {chat_id}, phoneNumber: {phone_number}")
-                
-                # Check Contact
-                contact_res = await session.execute(select(Contact).where(Contact.client_id == client_id, Contact.id == contact_id))
-                contact = contact_res.scalars().first()
-                if not contact:
-                    contact = Contact(
-                        id=contact_id,
-                        client_id=client_id,
-                        phone_number=phone_number,
-                        f_name="", # Placeholder
-                        l_name=""
-                    )
-                    session.add(contact)
-                    await session.flush() # Ensure ID is available (though we set it manually)
 
         async with AsyncSessionLocal() as session:
             # 1. Determine Contact/Chat ID
