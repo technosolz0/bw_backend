@@ -16,6 +16,51 @@ import aiofiles
 from datetime import timezone, timedelta
 
 from app.services.firebase_service import sync_chat_metadata, sync_message
+import uuid
+
+logger = logging.getLogger(__name__)
+
+def get_ist_time():
+    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
+async def increment_daily_stats(client_id: str, date_str: str, type_str: str):
+    async with AsyncSessionLocal() as session:
+        try:
+            # Check if stats exist for the day
+            result = await session.execute(
+                select(DailyStats).where(
+                    DailyStats.client_id == client_id,
+                    DailyStats.date == date_str
+                )
+            )
+            stats = result.scalars().first()
+            
+            if not stats:
+                stats = DailyStats(client_id=client_id, date=date_str)
+                session.add(stats)
+            
+            if type_str == 'sent':
+                if stats.total_sent is None:
+                    stats.total_sent = 0
+                stats.total_sent += 1
+            elif type_str == 'delivered':
+                if stats.total_delivered is None:
+                    stats.total_delivered = 0
+                stats.total_delivered += 1
+            elif type_str == 'read':
+                if stats.total_read is None:
+                    stats.total_read = 0
+                stats.total_read += 1
+            elif type_str == 'failed':
+                if stats.total_failed is None:
+                    stats.total_failed = 0
+                stats.total_failed += 1
+                
+            await session.commit()
+            logger.info(f"📊 Daily stats updated for {date_str}: {type_str}")
+        except Exception as e:
+            logger.error(f"❌ Error updating daily stats: {e}")
+            await session.rollback()
 
 async def ensure_contact_and_chat(session, client_id, phone_number, chat_id=None, formatted_phone=None, name=None, country_code=None):
     """
