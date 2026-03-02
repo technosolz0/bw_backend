@@ -16,6 +16,7 @@ import aiofiles
 from datetime import timezone, timedelta
 
 from app.services.firebase_service import sync_chat_metadata, sync_message
+import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -125,21 +126,6 @@ async def send_whatsapp_message_helper(request_body: dict):
             "Content-Type": "application/json",
         }
 
-        # headers = {
-        #     "x-access-token": token,
-        #     "x-waba-id": secrets.get("wabaId"),
-        #     "Content-Type": "application/json",
-        # }
-        # JS code used INTERAKT_TOKEN from env, but secrets also has it?
-        # In JS: const INTERAKT_TOKEN = process.env.INTERAKT_TOKEN;
-        # But wait, utils.js doesn't return INTERAKT_TOKEN in secrets?
-        # utils.js secrets: wabaId, phoneNumberId, phoneNumber, webhookVerifyToken, storeId, qnaStoreId, googleApiKey.
-        # It DOES NOT return interakt token.
-        # So we must get it from env.
-        
-        # interakt_token = os.getenv("INTERAKT_TOKEN")
-        # headers["x-access-token"] = interakt_token
-
         url = f"{base_url}/{secrets.get('phoneNumberId')}/messages"
         
         async with httpx.AsyncClient() as client:
@@ -157,22 +143,22 @@ async def send_whatsapp_message_helper(request_body: dict):
 
         async with AsyncSessionLocal() as session:
             # 1. Determine Contact/Chat ID
-            # Priority: 
-            # a) Use existing contact for this phone number
-            # b) Use provided chat_id if given (and potentially link to contact)
-            # c) Generate new UUID
+            contact = None
+            if chat_id and chat_id != "test":
+                contact_res = await session.execute(
+                    select(Contact).where(Contact.id == chat_id, Contact.client_id == client_id)
+                )
+                contact = contact_res.scalars().first()
             
-            contact_res = await session.execute(
-                select(Contact).where(Contact.client_id == client_id, Contact.phone_number == phone_number)
-            )
-            contact = contact_res.scalars().first()
+            if not contact:
+                contact_res = await session.execute(
+                    select(Contact).where(Contact.client_id == client_id, Contact.phone_number == phone_number)
+                )
+                contact = contact_res.scalars().first()
             
             if contact:
                 contact_id = contact.id
             else:
-                # If we have a chat_id but no contact, we might use chat_id as contact_id for new contact
-                # if it looks like a UUID or a custom string.
-                # But for consistency with webhooks:
                 contact_id = chat_id if (chat_id and chat_id != "test") else str(uuid.uuid4())
                 contact = Contact(
                     id=contact_id,
@@ -185,7 +171,6 @@ async def send_whatsapp_message_helper(request_body: dict):
                 session.add(contact)
                 await session.flush()
 
-            # The chatId in this system is typically the contactId
             effective_chat_id = contact_id
             
             # 2. Ensure Chat exists
