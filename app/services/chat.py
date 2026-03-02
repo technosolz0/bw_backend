@@ -16,52 +16,184 @@ import aiofiles
 from datetime import timezone, timedelta
 
 from app.services.firebase_service import sync_chat_metadata, sync_message
-import uuid
-import logging
 
-logger = logging.getLogger(__name__)
+async def ensure_contact_and_chat(session, client_id, phone_number, chat_id=None, formatted_phone=None, name=None, country_code=None):
+    """
+    Ensures a contact and chat exist for the given phone number.
+    Returns (contact_id, chat_name, phone_number)
+    """
+    if not formatted_phone:
+        formatted_phone = phone_number.replace("+", "").replace(" ", "").replace("-", "")
 
-def get_ist_time():
-    return datetime.datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    # 1. Determine Contact/Chat ID
+    contact = None
+    if chat_id and chat_id != "test":
+        contact_res = await session.execute(
+            select(Contact).where(Contact.id == chat_id, Contact.client_id == client_id)
+        )
+        contact = contact_res.scalars().first()
+    
+    if not contact:
+        contact_res = await session.execute(
+            select(Contact).where(Contact.client_id == client_id, Contact.phone_number == phone_number)
+        )
+        contact = contact_res.scalars().first()
+    
+    if contact:
+        contact_id = contact.id
+    else:
+        contact_id = chat_id if (chat_id and chat_id != "test") else str(uuid.uuid4())
+        contact = Contact(
+            id=contact_id,
+            client_id=client_id,
+            phone_number=phone_number,
+            country_code=country_code,
+            f_name=name or "",
+            l_name="",
+            created_at=get_ist_time()
+        )
+        session.add(contact)
+        await session.flush()
 
-async def increment_daily_stats(client_id: str, date_str: str, type_str: str):
-    async with AsyncSessionLocal() as session:
-        try:
-            # Check if stats exist for the day
-            result = await session.execute(
-                select(DailyStats).where(
-                    DailyStats.client_id == client_id,
-                    DailyStats.date == date_str
-                )
-            )
-            stats = result.scalars().first()
-            
-            if not stats:
-                stats = DailyStats(client_id=client_id, date=date_str)
-                session.add(stats)
-            
-            if type_str == 'sent':
-                if stats.total_sent is None:
-                    stats.total_sent = 0
-                stats.total_sent += 1
-            elif type_str == 'delivered':
-                if stats.total_delivered is None:
-                    stats.total_delivered = 0
-                stats.total_delivered += 1
-            elif type_str == 'read':
-                if stats.total_read is None:
-                    stats.total_read = 0
-                stats.total_read += 1
-            elif type_str == 'failed':
-                if stats.total_failed is None:
-                    stats.total_failed = 0
-                stats.total_failed += 1
-                
-            await session.commit()
-            logger.info(f"📊 Daily stats updated for {date_str}: {type_str}")
-        except Exception as e:
-            logger.error(f"❌ Error updating daily stats: {e}")
-            await session.rollback()
+    effective_chat_id = contact_id
+    
+    # 2. Ensure Chat exists
+    chat_res = await session.execute(
+        select(Chat).where(Chat.client_id == client_id, Chat.id == effective_chat_id)
+    )
+    chat = chat_res.scalars().first()
+    
+    if not chat:
+        chat = Chat(
+            id=effective_chat_id,
+            client_id=client_id,
+            contact_id=contact_id,
+            phone_number=phone_number,
+            name=name or formatted_phone,
+            is_active=True,
+            un_read=False,
+            created_at=get_ist_time()
+        )
+        session.add(chat)
+    
+    return effective_chat_id, chat.name, phone_number
+
+async def create_template_chat_message(client_id, template, message, broadcast, whatsapp_message_id, status, status_timestamp):
+    # template is now SQL model, message is BroadcastMessage model (or dict), broadcast is Broadcast model (optional)
+    
+    payload = message.payload if hasattr(message, 'payload') else (message.get('payload') if isinstance(message, dict) else {})
+    payload_type = payload.get("type", "").upper()
+    template_message = None
+    
+    def replace_body_params(text, variables):
+        for i, var in enumerate(variables):
+            text = text.replace(f"{{{{{i+1}}}}}", str(var))
+        return text
+
+    components = template.components or []
+    
+    header_comp = next((c for c in components if c['type'] == 'HEADER'), {})
+    body_comp = next((c for c in components if c['type'] == 'BODY'), {})
+    footer_comp = next((c for c in components if c['type'] == 'FOOTER'), {})
+    buttons_comp = next((c for c in components if c['type'] == 'BUTTONS'), {})
+
+    body_text = body_comp.get("text", "")
+    body_vars = payload.get("bodyVariables", [])
+    content = replace_body_params(body_text, body_vars)
+    
+    sender_name = broadcast.admin_name if broadcast else "Admin"
+    
+    base_msg = {
+        "is_from_me": True,
+        "sender_name": sender_name,
+        "status": status,
+        "whatsapp_message_id": whatsapp_message_id,
+        "sender_avatar": None,
+        "caption": None,
+        "media_url": None,
+        "file_name": None,
+        "message_type": "text"
+    }
+    
+    # If footer exists, maybe append to content?
+    footer_text = footer_comp.get("text")
+    if footer_text:
+        content += f"\n\n{footer_text}"
+    
+    if status == 'delivered':
+        base_msg['delivered_at'] = status_timestamp
+    elif status == 'read':
+        base_msg['read_at'] = status_timestamp
+    else:
+        base_msg['sent_at'] = status_timestamp # Default
+
+    if payload_type == 'TEXT':
+        header_text = header_comp.get("text")
+        if header_text:
+             content = f"*{header_text}*\n{content}"
+             
+        base_msg.update({
+             "content": content,
+        })
+        template_message = base_msg
+        
+    elif payload_type == 'MEDIA':
+        header_vars = payload.get("headerVariables", {})
+        file_name = header_vars.get("data", {}).get("fileName")
+        
+        # message_id_val could be from model or dict
+        def get_msg_val(obj, key):
+            if hasattr(obj, key): return getattr(obj, key)
+            if isinstance(obj, dict): return obj.get(key)
+            return None
+
+        attachment_id = broadcast.attachment_id if broadcast else get_msg_val(message, 'attachment_id')
+        
+        media_url = None
+        if file_name and attachment_id:
+            # Local File Storage URL
+            dir_rel_path = f"broadcasts_media/{client_id}/{attachment_id}"
+            server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+            media_url = f"{server_url}/static/{dir_rel_path}/{file_name}"
+
+        base_msg.update({
+            "content": content,
+            "file_name": file_name,
+            "media_url": media_url,
+            "message_type": header_vars.get("type", "").lower() if header_vars.get("type") else "image"
+        })
+        template_message = base_msg
+        
+    elif payload_type == 'INTERACTIVE':
+        # simplifying interactive checks
+        header_vars = payload.get("headerVariables", {})
+        media_url = None
+        file_name = None
+        
+        if header_vars:
+             if header_vars.get("type") not in ['text', None]:
+                file_name = header_vars.get("data", {}).get("fileName")
+                attachment_id = broadcast.attachment_id if broadcast else get_msg_val(message, 'attachment_id')
+                if file_name and attachment_id:
+                    dir_rel_path = f"broadcasts_media/{client_id}/{attachment_id}"
+                    server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+                    media_url = f"{server_url}/static/{dir_rel_path}/{file_name}"
+
+        # Buttons - not stored in Message model explicitly aside from context?
+        # appending buttons to content for visibility
+        if buttons_comp:
+            buttons_text = "\n".join([f"[{b.get('text')}]" for b in buttons_comp.get("buttons", [])])
+            content += f"\n\n{buttons_text}"
+
+        base_msg.update({
+            "content": content,
+            "file_name": file_name,
+            "media_url": media_url,
+            "message_type": 'interactive',
+        })
+        template_message = base_msg
+
+    return template_message
 
 async def send_whatsapp_message_helper(request_body: dict):
     try:
@@ -142,55 +274,15 @@ async def send_whatsapp_message_helper(request_body: dict):
 
 
         async with AsyncSessionLocal() as session:
-            # 1. Determine Contact/Chat ID
-            contact = None
-            if chat_id and chat_id != "test":
-                contact_res = await session.execute(
-                    select(Contact).where(Contact.id == chat_id, Contact.client_id == client_id)
-                )
-                contact = contact_res.scalars().first()
+            effective_chat_id, chat_name, _ = await ensure_contact_and_chat(
+                session, client_id, phone_number, chat_id, formatted_phone
+            )
             
-            if not contact:
-                contact_res = await session.execute(
-                    select(Contact).where(Contact.client_id == client_id, Contact.phone_number == phone_number)
-                )
-                contact = contact_res.scalars().first()
-            
-            if contact:
-                contact_id = contact.id
-            else:
-                contact_id = chat_id if (chat_id and chat_id != "test") else str(uuid.uuid4())
-                contact = Contact(
-                    id=contact_id,
-                    client_id=client_id,
-                    phone_number=phone_number,
-                    f_name="",
-                    l_name="",
-                    created_at=get_ist_time()
-                )
-                session.add(contact)
-                await session.flush()
-
-            effective_chat_id = contact_id
-            
-            # 2. Ensure Chat exists
+            # Re-fetch chat to update last message
             chat_res = await session.execute(
                 select(Chat).where(Chat.client_id == client_id, Chat.id == effective_chat_id)
             )
             chat = chat_res.scalars().first()
-            
-            if not chat:
-                chat = Chat(
-                    id=effective_chat_id,
-                    client_id=client_id,
-                    contact_id=contact_id,
-                    phone_number=phone_number,
-                    name=formatted_phone,
-                    is_active=True,
-                    un_read=False,
-                    created_at=get_ist_time()
-                )
-                session.add(chat)
             
             # 3. Create Message
             new_msg = Message(
@@ -210,8 +302,9 @@ async def send_whatsapp_message_helper(request_body: dict):
             session.add(new_msg)
             
             # Update Chat last message
-            chat.last_message = message_content
-            chat.last_message_time = get_ist_time()
+            if chat:
+                chat.last_message = message_content
+                chat.last_message_time = get_ist_time()
             
             await session.commit()
 
@@ -222,7 +315,7 @@ async def send_whatsapp_message_helper(request_body: dict):
                     "lastMessage": message_content,
                     "lastMessageTime": get_ist_time(),
                     "phoneNumber": phone_number,
-                    "name": chat.name
+                    "name": chat_name
                 })
                 
                 await sync_message(effective_chat_id, client_id, whatsapp_message_id, {

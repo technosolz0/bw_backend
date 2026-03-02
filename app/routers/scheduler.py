@@ -11,6 +11,9 @@ from app.services.whatsapp_meta import (
     send_template_message
 )
 from app.services.utils import get_secrets
+from app.services.firebase_service import sync_chat_metadata, sync_message
+from app.services.chat import ensure_contact_and_chat, create_template_chat_message, increment_daily_stats
+from app.models.sql_models import Contact, MilestoneScheduler, Template, Message, Chat
 from sqlalchemy.future import select
 import logging
 import datetime
@@ -190,9 +193,90 @@ async def send_milestone_messages(body: MilestoneTriggerRequest):
                         body_vars.append(c_val)
 
                 # Send
-                await send_template_message(client_id, secrets, selected_template_name, language, body_vars, media_id, phone_number)
-                
-                logger.info(f"✅ Sent milestone wish to {name}")
+                response = await send_template_message(client_id, secrets, selected_template_name, language, body_vars, media_id, phone_number)
+                whatsapp_message_id = response.get("messages", [{}])[0].get("id")
+
+                # 📊 Persist to Message Table & Sync to Firestore
+                async with AsyncSessionLocal() as session:
+                    try:
+                        # 1. Get Template record
+                        t_res = await session.execute(select(Template).where(Template.name == selected_template_name, Template.client_id == client_id))
+                        template_record = t_res.scalars().first()
+                        
+                        if template_record:
+                            # 2. Use helper to find/create Contact and Chat
+                            # Using contact.id directly if it exists, otherwise phone_number
+                            effective_chat_id, chat_name, _ = await ensure_contact_and_chat(
+                                session, client_id, phone_number, chat_id=contact.id, name=name
+                            )
+                            
+                            # 3. Create the template-formatted message
+                            payload = {
+                                "type": media_type.upper() if media_id else "TEXT",
+                                "bodyVariables": body_vars or [],
+                                "headerVariables": {
+                                    "type": media_type,
+                                    "data": {"mediaId": media_id}
+                                } if media_id else None
+                            }
+                            
+                            template_chat_msg = await create_template_chat_message(
+                                client_id,
+                                template_record,
+                                {"payload": payload},
+                                None,
+                                whatsapp_message_id,
+                                "sent",
+                                get_ist_time()
+                            )
+                            
+                            if template_chat_msg:
+                                # 4. Store in Message table
+                                new_chat_msg = Message(
+                                    chat_id=effective_chat_id,
+                                    client_id=client_id,
+                                    **template_chat_msg
+                                )
+                                session.add(new_chat_msg)
+                                
+                                # 5. Update Chat last message
+                                chat_res = await session.execute(select(Chat).where(Chat.id == effective_chat_id, Chat.client_id == client_id))
+                                chat = chat_res.scalars().first()
+                                if chat:
+                                    chat.last_message = template_chat_msg.get("content", "")
+                                    chat.last_message_time = get_ist_time()
+                                
+                                await session.commit()
+                                
+                                # 6. Firestore Sync
+                                await sync_chat_metadata(effective_chat_id, client_id, {
+                                    "lastMessage": template_chat_msg.get("content", ""),
+                                    "lastMessageTime": get_ist_time(),
+                                    "phoneNumber": phone_number,
+                                    "name": chat_name
+                                })
+                                
+                                await sync_message(effective_chat_id, client_id, whatsapp_message_id, {
+                                    "content": template_chat_msg.get("content", ""),
+                                    "timestamp": get_ist_time(),
+                                    "isFromMe": True,
+                                    "senderName": "Admin",
+                                    "status": "sent",
+                                    "whatsappMessageId": whatsapp_message_id,
+                                    "messageType": template_chat_msg.get("message_type", "text"),
+                                    "mediaUrl": template_chat_msg.get("media_url"),
+                                    "fileName": template_chat_msg.get("file_name")
+                                })
+                                logger.info(f"✅ Milestone message {whatsapp_message_id} persisted and synced for {name}")
+                        else:
+                            logger.warning(f"Template {selected_template_name} not found in DB, skipping persistence")
+                    except Exception as persistence_err:
+                        logger.error(f"Failed to persist milestone message: {persistence_err}")
+                        await session.rollback()
+
+                # Update stats
+                today = get_ist_time().strftime("%Y-%m-%d")
+                await increment_daily_stats(client_id, today, 'sent')
                 
             except Exception as e:
                 logger.error(f"Error processing contact {contact.id}: {e}")
