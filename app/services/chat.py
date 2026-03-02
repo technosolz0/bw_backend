@@ -198,7 +198,7 @@ async def create_template_chat_message(client_id, template, message, broadcast, 
         if file_name and attachment_id:
             # Local File Storage URL
             dir_rel_path = f"broadcasts_media/{client_id}/{attachment_id}"
-            server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+            server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
             media_url = f"{server_url}/static/{dir_rel_path}/{file_name}"
 
         base_msg.update({
@@ -221,7 +221,7 @@ async def create_template_chat_message(client_id, template, message, broadcast, 
                 attachment_id = broadcast.attachment_id if broadcast else get_msg_val(message, 'attachment_id')
                 if file_name and attachment_id:
                     dir_rel_path = f"broadcasts_media/{client_id}/{attachment_id}"
-                    server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+                    server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
                     media_url = f"{server_url}/static/{dir_rel_path}/{file_name}"
 
         # Buttons - not stored in Message model explicitly aside from context?
@@ -458,13 +458,17 @@ async def download_and_upload_media(client_id, secrets, media_id, mime_type, ori
     base_url = get_base_url()
     token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
     
+    # Get server URL and ensure no trailing slash
+    server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
+    
     last_error = None
     
     for retry in range(max_retries + 1):
         try:
             logger.info(f"[Media {media_id}] Attempt {retry + 1}: Fetching signed URL...")
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                # 1. Get the media metadata (includes the URL)
                 meta_res = await client.get(
                     f"{base_url}/{media_id}",
                     headers={"Authorization": f"Bearer {token}"},
@@ -476,24 +480,48 @@ async def download_and_upload_media(client_id, secrets, media_id, mime_type, ori
                 if not signed_url:
                     raise ValueError(f"No signed URL in response: {meta_res.text}")
                 
-                logger.info(f"[Media {media_id}] Signed URL fetched.")
+                logger.info(f"[Media {media_id}] Signed URL fetched. Downloading content...")
                 
-                download_res = await client.get(
-                    signed_url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=90.0 + (retry * 10)
-                )
-                download_res.raise_for_status()
+                # 2. Download the actual content
+                # Note: Sometimes Meta signed URLs don't want the Authorization header.
+                # We'll try with it first, then without if it fails.
+                try:
+                    download_res = await client.get(
+                        signed_url,
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=90.0 + (retry * 10)
+                    )
+                    download_res.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in [401, 403]:
+                        logger.warning(f"[Media {media_id}] Auth failed on CDNs, retrying without Authorization header...")
+                        download_res = await client.get(
+                            signed_url,
+                            timeout=90.0 + (retry * 10)
+                        )
+                        download_res.raise_for_status()
+                    else:
+                        raise e
+
                 buffer = download_res.content
                 file_size = len(buffer)
                 
-                if file_size == 0:
-                     raise ValueError("Downloaded empty file")
+                # Check if we got an error page instead of an image
+                content_type = download_res.headers.get("Content-Type", "").lower()
+                if "text/html" in content_type or "application/json" in content_type:
+                    logger.error(f"[Media {media_id}] Downloaded unexpected content type: {content_type}")
+                    raise ValueError(f"Downloaded {content_type} instead of binary media")
+
+                if file_size < 100: # Files too small are likely errors
+                     raise ValueError(f"Downloaded file too small: {file_size} bytes")
                 
-                logger.info(f"[Media {media_id}] Downloaded {file_size} bytes")
+                logger.info(f"[Media {media_id}] Downloaded {file_size} bytes ({content_type})")
                 
-                ext = mime_type.split("/")[1].split("+")[0] if mime_type else "file"
-                if not ext: ext = "file"
+                # Determine extension
+                ext = mime_type.split("/")[1].split("+")[0] if mime_type else None
+                if not ext:
+                    # Fallback to content type from download
+                    ext = content_type.split("/")[1] if "/" in content_type else "file"
                 
                 timestamp = int(time.time() * 1000)
                 random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
@@ -518,7 +546,6 @@ async def download_and_upload_media(client_id, secrets, media_id, mime_type, ori
                 async with aiofiles.open(file_path, 'wb') as f:
                     await f.write(buffer)
                 
-                server_url = os.getenv("SERVER_URL", "http://localhost:8000")
                 public_url = f"{server_url}/static/{dir_rel_path}/{final_filename}"
                      
                 logger.info(f"[Media {media_id}] ✅ Uploaded to: {public_url}")
@@ -526,7 +553,7 @@ async def download_and_upload_media(client_id, secrets, media_id, mime_type, ori
                 return {
                     "url": public_url,
                     "filename": original_filename or final_filename,
-                    "mimeType": mime_type,
+                    "mimeType": mime_type or content_type,
                     "size": file_size
                 }
 
@@ -555,7 +582,7 @@ async def upload_media_from_base64(client_id, file_name, mime_type, base64_file)
         async with aiofiles.open(file_path, 'wb') as f:
             await f.write(file_data)
         
-        server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+        server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
         public_url = f"{server_url}/static/{dir_rel_path}/{final_filename}"
         
         return {
