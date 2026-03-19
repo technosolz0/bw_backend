@@ -217,23 +217,27 @@ async def create_meta_template(client_id, template_data):
         if buttons_data:
             processed_buttons = []
             for b in buttons_data:
-                b_type = b.get("type", "QUICK_REPLY")
+                b_type: str = b.get("type", "QUICK_REPLY")
+                mapped: Dict[str, Any] = {}
                 
                 if b_type == "COPY_CODE":
                     # COPY_CODE buttons have fixed text or use example as code
                     mapped = {"type": "COPY_CODE"}
                     if b.get("example"):
                         # In Meta API, COPY_CODE example is a list of strings
-                        mapped["example"] = [str(b["example"][0])] if isinstance(b["example"], list) else [str(b["example"])]
+                        val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                        mapped["example"] = [str(val)]
                 elif b_type == "URL":
                     mapped = {"type": "URL", "text": b.get("text", ""), "url": b.get("url", "")}
                     if b.get("example"):
                         # URL examples are usually a list of suffixes
-                        mapped["example"] = [str(b["example"][0])] if isinstance(b["example"], list) else [str(b["example"])]
+                        val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                        mapped["example"] = [str(val)]
                 elif b_type == "PHONE_NUMBER":
                     mapped = {"type": "PHONE_NUMBER", "text": b.get("text", ""), "phone_number": b.get("phone_number", "")}
                 else: # QUICK_REPLY or others
                     mapped = {"type": b_type, "text": b.get("text", "")}
+
                     
                 processed_buttons.append(mapped)
             
