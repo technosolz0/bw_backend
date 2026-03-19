@@ -55,7 +55,8 @@ async def get_templates(
         if isinstance(result, dict) and "error" in result:
              return {"success": False, "error": result["error"]}
              
-        return {"success": True, "data": result.get("data", result)}
+        return {"success": True, "data": result}
+
     except Exception as e:
         logger.error(f"Error fetching templates: {e}")
         return {"success": False, "message": str(e)}
@@ -69,7 +70,8 @@ async def get_approved(clientId: str = Query(...)):
         if isinstance(result, dict) and "error" in result:
              return {"success": False, "error": result["error"]}
              
-        return {"success": True, "data": result.get("data", [])}
+        return {"success": True, "data": result}
+
     except Exception as e:
         logger.error(f"Error fetching approved templates: {e}")
         return {"success": False, "message": str(e)}
