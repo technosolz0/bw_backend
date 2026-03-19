@@ -22,16 +22,17 @@ logger = logging.getLogger(__name__)
 @router.post("/createInteraktTemplate")
 async def create_template(body: TemplateCreate):
     try:
-        # Convert Pydantic model to dict for service layer if needed, or pass fields
-        # usage: create_interakt_template(client_id, template_data)
-        # We can pass body.dict() or similar.
         data = body.dict(exclude_none=True)
-        # Note: templateType vs type in older code? schema has templateType. 
         result = await create_meta_template(body.clientId, data) 
+        
+        if isinstance(result, dict) and "error" in result:
+            return {"success": False, "error": result["error"]}
+            
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"Error creating template: {e}")
-        return Response(content=str(e), status_code=500)
+        return {"success": False, "message": str(e)}
+
 
 @router.get("/getInteraktTemplates")
 async def get_templates(
@@ -42,7 +43,7 @@ async def get_templates(
 ):
     try:
         if not clientId:
-             return Response("Missing clientId", status_code=400)
+             return {"success": False, "message": "Missing clientId"}
              
         result = await get_meta_templates(
             clientId, 
@@ -50,47 +51,60 @@ async def get_templates(
             after, 
             before
         )
-        return {"success": result.get("success", True), "data": result.get("data", result)}
+        
+        if isinstance(result, dict) and "error" in result:
+             return {"success": False, "error": result["error"]}
+             
+        return {"success": True, "data": result.get("data", result)}
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        logger.error(f"Error fetching templates: {e}")
+        return {"success": False, "message": str(e)}
+
 
 @router.get("/getApprovedTemplates")
 async def get_approved(clientId: str = Query(...)):
     try:
         result = await get_meta_templates(clientId, status="APPROVED", fields="name,category")
+        
+        if isinstance(result, dict) and "error" in result:
+             return {"success": False, "error": result["error"]}
+             
         return {"success": True, "data": result.get("data", [])}
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        logger.error(f"Error fetching approved templates: {e}")
+        return {"success": False, "message": str(e)}
+
 
 @router.get("/getApprovedMediaTemplates")
 async def get_approved_media(clientId: str = Query(...)):
     try:
-        client_id = clientId
-        result = await get_meta_templates(client_id, status="APPROVED", fields="name,category")
+        # Fetch name, category, and components from Meta API
+        result = await get_meta_templates(clientId, status="APPROVED", fields="name,category,components")
+        
+        if isinstance(result, dict) and "error" in result:
+             return {"success": False, "error": result["error"]}
+             
         approved_templates = result.get("data", [])
         
-        # Database filter
-        async with AsyncSessionLocal() as session:
-            db_res = await session.execute(
-                select(Template).where(
-                     Template.client_id == client_id,
-                     Template.type == "Text & Media"
-                )
-            )
-            templates = db_res.scalars().all()
+        media_templates = []
+        for t in approved_templates:
+            components = t.get("components", [])
+            # A template is considered a media template if it has a HEADER with IMAGE or VIDEO format
+            has_media = False
+            for comp in components:
+                if comp.get("type") == "HEADER" and comp.get("format") in ["IMAGE", "VIDEO", "DOCUMENT"]:
+                    has_media = True
+                    break
             
-            media_template_ids = set()
-            for t in templates:
-                comps = t.components or []
-                if comps and isinstance(comps, list) and len(comps) > 0:
-                     if comps[0].get("format") == "IMAGE":
-                         media_template_ids.add(t.id)
-        
-        filtered = [t for t in approved_templates if t.get("id") in media_template_ids]
-        return {"success": True, "data": filtered}
+            if has_media:
+                media_templates.append(t)
+                
+        return {"success": True, "data": media_templates}
         
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        logger.error(f"Error fetching approved media templates: {e}")
+        return {"success": False, "message": str(e)}
+
 
 @router.post("/deleteInteraktTemplate")
 async def delete_template(body: DeleteTemplateRequest):

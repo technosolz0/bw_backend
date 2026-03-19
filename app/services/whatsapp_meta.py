@@ -248,27 +248,39 @@ async def create_meta_template(client_id, template_data):
 
 
 async def get_meta_templates(client_id, limit=None, after=None, before=None, status=None, fields=None):
-    secrets = await get_secrets(client_id)
-    base_url = get_base_url()
-    token = await get_meta_token()
-    
-    params = {}
-    if limit: params["limit"] = limit
-    if after: params["after"] = after
-    if before: params["before"] = before
-    if status: params["status"] = status
-    if fields: params["fields"] = fields
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{base_url}/{secrets['wabaId']}/message_templates",
-            params=params,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-        )
-        return response.json()
+    try:
+        secrets = await get_secrets(client_id)
+        if not secrets or 'wabaId' not in secrets:
+            logger.error(f"WABA ID not found for client {client_id}")
+            return {"error": "WABA ID not found", "success": False}
+            
+        base_url = get_base_url()
+        token = await get_meta_token()
+        
+        params = {}
+        if limit: params["limit"] = limit
+        if after: params["after"] = after
+        if before: params["before"] = before
+        if status: params["status"] = status
+        if fields: params["fields"] = fields
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{base_url}/{secrets['wabaId']}/message_templates",
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            data = response.json()
+            if "error" in data:
+                logger.error(f"Meta API error in get_meta_templates: {data['error']}")
+            return data
+    except Exception as e:
+        logger.error(f"Error in get_meta_templates: {e}")
+        return {"error": str(e), "success": False}
+
 
 async def delete_meta_template(client_id, name):
     secrets = await get_secrets(client_id)

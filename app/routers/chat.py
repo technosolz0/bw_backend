@@ -93,10 +93,47 @@ async def get_chats(clientId: str = Query(...)):
                 .order_by(desc(Chat.last_message_time))
             )
             chats = result.scalars().all()
-            return {"success": True, "data": chats}
+            
+            # Sanitize assigned_admins to ensure it's always a list/iterable for the frontend
+            data = []
+            for chat in chats:
+                chat_dict = {
+                    "id": chat.id,
+                    "client_id": chat.client_id,
+                    "contact_id": chat.contact_id,
+                    "name": chat.name,
+                    "phone_number": chat.phone_number,
+                    "avatar_url": chat.avatar_url,
+                    "last_message": chat.last_message,
+                    "last_message_time": chat.last_message_time,
+                    "campaign_name": chat.campaign_name,
+                    "is_online": chat.is_online,
+                    "ai_response_enabled": chat.ai_response_enabled,
+                    "is_active": chat.is_active,
+                    "un_read": chat.un_read,
+                    "created_at": chat.created_at,
+                    "user_last_message_time": chat.user_last_message_time
+                }
+                
+                # Handle assigned_admins string vs list issue
+                assigned = chat.assigned_admins
+                if isinstance(assigned, str):
+                    try:
+                        chat_dict["assigned_admins"] = json.loads(assigned)
+                    except:
+                        chat_dict["assigned_admins"] = []
+                elif assigned is None:
+                    chat_dict["assigned_admins"] = []
+                else:
+                    chat_dict["assigned_admins"] = assigned
+                    
+                data.append(chat_dict)
+                
+            return {"success": True, "data": data}
         except Exception as e:
             logger.error(f"Error fetching chats: {e}")
             return Response(content=str(e), status_code=500)
+
 
 @router.post("/createChat")
 async def create_chat(body: UpdateChatRequest = Body(...)): # Reusing UpdateChatRequest or similar
@@ -160,10 +197,43 @@ async def get_admins(clientId: str = Query(...)):
                 select(Admin).where(Admin.client_id == clientId)
             )
             admins = result.scalars().all()
-            return {"success": True, "data": admins}
+            
+            data = []
+            for admin in admins:
+                admin_dict = {
+                    "id": admin.id,
+                    "client_id": admin.client_id,
+                    "email": admin.email,
+                    "first_name": admin.first_name,
+                    "last_name": admin.last_name,
+                    "profile_photo": admin.profile_photo,
+                    "is_super_user": admin.is_super_user,
+                    "is_all_chats": admin.is_all_chats,
+                    "last_logged_in": admin.last_logged_in,
+                    "created_at": admin.created_at,
+                    "updated_at": admin.updated_at
+                }
+                
+                # Sanitize JSON fields
+                for field in ["assigned_contacts", "assigned_pages"]:
+                    val = getattr(admin, field)
+                    if isinstance(val, str):
+                        try:
+                            admin_dict[field] = json.loads(val)
+                        except:
+                            admin_dict[field] = []
+                    elif val is None:
+                        admin_dict[field] = []
+                    else:
+                        admin_dict[field] = val
+                
+                data.append(admin_dict)
+                
+            return {"success": True, "data": data}
         except Exception as e:
             logger.error(f"Error fetching admins: {e}")
             return Response(content=str(e), status_code=500)
+
 
 @router.get("/getMessages")
 async def get_messages(
