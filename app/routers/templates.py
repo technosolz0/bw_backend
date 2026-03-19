@@ -25,6 +25,7 @@ async def create_template(body: TemplateCreate):
         data = body.dict(exclude_none=True)
         result = await create_meta_template(body.clientId, data) 
         
+        logger.info(f"Meta API Create Result: {result}")
         if isinstance(result, dict) and "error" in result:
             return {
                 "success": False,
@@ -32,6 +33,7 @@ async def create_template(body: TemplateCreate):
             }
             
         return {"success": True, "data": result}
+
 
     except Exception as e:
         logger.error(f"Error creating template: {e}")
