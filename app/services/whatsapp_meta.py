@@ -1,8 +1,8 @@
 from app.services.utils import get_secrets, get_base_url
+from typing import Any, Dict, List
 import httpx
 import os
 import logging
-# from app.services.firebase import db
 
 logger = logging.getLogger(__name__)
 
@@ -182,16 +182,22 @@ async def create_meta_template(client_id, template_data):
         if media_handle_id:
             components.append({
                 "type": "HEADER",
-                "format": media_type.upper(),
+                "format": media_type.upper() if media_type else "IMAGE",
                 "example": {"header_handle": [media_handle_id]}
             })
         elif header and header.strip():
-            components.append({
+            h_comp = {
                 "type": "HEADER",
                 "format": "TEXT",
-                "text": header,
-                "example": {"header_text": [header]}
-            })
+                "text": header
+            }
+            # Meta documentation: Only include example if variables exist in header
+            if "{{" in header:
+                # If we don't have explicit header examples, we use the text itself as a fallback
+                # but ideally we should have separate values.
+                h_comp["example"] = {"header_text": [header]}
+            components.append(h_comp)
+
             
         # Body
         body = template_data.get("body")
@@ -207,23 +213,32 @@ async def create_meta_template(client_id, template_data):
             components.append({"type": "FOOTER", "text": footer})
             
         # Buttons
-        buttons = template_data.get("buttons", [])
-        if buttons:
+        buttons_data = template_data.get("buttons", [])
+        if buttons_data:
             processed_buttons = []
-            for b in buttons:
-                mapped = {"type": b["type"], "text": b["text"]}
-                if b["type"] == "URL":
-                    mapped["url"] = b["url"]
+            for b in buttons_data:
+                b_type = b.get("type", "QUICK_REPLY")
+                
+                if b_type == "COPY_CODE":
+                    # COPY_CODE buttons have fixed text or use example as code
+                    mapped = {"type": "COPY_CODE"}
                     if b.get("example"):
-                        mapped["example"] = b["example"][0]
-                elif b["type"] == "PHONE_NUMBER":
-                    mapped["phone_number"] = b["phone_number"]
-                elif b["type"] == "COPY_CODE":
-                     if b.get("example"):
-                        mapped["example"] = b["example"][0]
+                        # In Meta API, COPY_CODE example is a list of strings
+                        mapped["example"] = [str(b["example"][0])] if isinstance(b["example"], list) else [str(b["example"])]
+                elif b_type == "URL":
+                    mapped = {"type": "URL", "text": b.get("text", ""), "url": b.get("url", "")}
+                    if b.get("example"):
+                        # URL examples are usually a list of suffixes
+                        mapped["example"] = [str(b["example"][0])] if isinstance(b["example"], list) else [str(b["example"])]
+                elif b_type == "PHONE_NUMBER":
+                    mapped = {"type": "PHONE_NUMBER", "text": b.get("text", ""), "phone_number": b.get("phone_number", "")}
+                else: # QUICK_REPLY or others
+                    mapped = {"type": b_type, "text": b.get("text", "")}
+                    
                 processed_buttons.append(mapped)
             
             components.append({"type": "BUTTONS", "buttons": processed_buttons})
+
             
         final_payload = {
             "name": name,
