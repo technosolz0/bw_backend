@@ -159,88 +159,93 @@ async def update_whatsapp_business_profile(client_id, payload):
         return response.json()
 
 async def create_meta_template(client_id, template_data):
-    secrets = await get_secrets(client_id)
-    base_url = get_base_url()
-    token = await get_meta_token()
-    
-    # Construct payload logic based on template_data
-    # This logic matches createMetaTemplate in templateHandler.js
-    
-    name = template_data.get("name")
-    language = template_data.get("language")
-    category = template_data.get("category")
-    template_type = template_data.get("templateType", "Text")
-    
-    components = []
-    
-    # Header
-    header = template_data.get("header")
-    media_handle_id = template_data.get("media_handle_id")
-    media_type = template_data.get("mediaType")
-    
-    if media_handle_id:
-        components.append({
-            "type": "HEADER",
-            "format": media_type.upper(),
-            "example": {"header_handle": [media_handle_id]}
-        })
-    elif header and header.strip():
-        components.append({
-            "type": "HEADER",
-            "format": "TEXT",
-            "text": header,
-            "example": {"header_text": [header]}
-        })
+    try:
+        secrets = await get_secrets(client_id)
+        base_url = get_base_url()
+        token = await get_meta_token()
         
-    # Body
-    body = template_data.get("body")
-    body_examples = template_data.get("bodyExampleValues", [])
-    body_comp = {"type": "BODY", "text": body}
-    if body_examples:
-        body_comp["example"] = {"body_text": [body_examples]}
-    components.append(body_comp)
-    
-    # Footer
-    footer = template_data.get("footer")
-    if footer and footer.strip():
-        components.append({"type": "FOOTER", "text": footer})
+        # Construct payload logic based on template_data
+        # This logic matches createMetaTemplate in templateHandler.js
         
-    # Buttons
-    buttons = template_data.get("buttons", [])
-    if buttons:
-        processed_buttons = []
-        for b in buttons:
-            mapped = {"type": b["type"], "text": b["text"]}
-            if b["type"] == "URL":
-                mapped["url"] = b["url"]
-                if b.get("example"):
-                    mapped["example"] = b["example"][0]
-            elif b["type"] == "PHONE_NUMBER":
-                mapped["phone_number"] = b["phone_number"]
-            elif b["type"] == "COPY_CODE":
-                 if b.get("example"):
-                    mapped["example"] = b["example"][0]
-            processed_buttons.append(mapped)
+        name = template_data.get("name")
+        language = template_data.get("language")
+        category = template_data.get("category")
+        template_type = template_data.get("templateType", "Text")
         
-        components.append({"type": "BUTTONS", "buttons": processed_buttons})
+        components = []
         
-    final_payload = {
-        "name": name,
-        "language": language,
-        "category": category.upper(),
-        "components": components
-    }
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{base_url}/{secrets['wabaId']}/message_templates",
-            json=final_payload,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-        )
-        return response.json()
+        # Header
+        header = template_data.get("header")
+        media_handle_id = template_data.get("media_handle_id")
+        media_type = template_data.get("mediaType")
+        
+        if media_handle_id:
+            components.append({
+                "type": "HEADER",
+                "format": media_type.upper(),
+                "example": {"header_handle": [media_handle_id]}
+            })
+        elif header and header.strip():
+            components.append({
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": header,
+                "example": {"header_text": [header]}
+            })
+            
+        # Body
+        body = template_data.get("body")
+        body_examples = template_data.get("bodyExampleValues", [])
+        body_comp = {"type": "BODY", "text": body}
+        if body_examples:
+            body_comp["example"] = {"body_text": [body_examples]}
+        components.append(body_comp)
+        
+        # Footer
+        footer = template_data.get("footer")
+        if footer and footer.strip():
+            components.append({"type": "FOOTER", "text": footer})
+            
+        # Buttons
+        buttons = template_data.get("buttons", [])
+        if buttons:
+            processed_buttons = []
+            for b in buttons:
+                mapped = {"type": b["type"], "text": b["text"]}
+                if b["type"] == "URL":
+                    mapped["url"] = b["url"]
+                    if b.get("example"):
+                        mapped["example"] = b["example"][0]
+                elif b["type"] == "PHONE_NUMBER":
+                    mapped["phone_number"] = b["phone_number"]
+                elif b["type"] == "COPY_CODE":
+                     if b.get("example"):
+                        mapped["example"] = b["example"][0]
+                processed_buttons.append(mapped)
+            
+            components.append({"type": "BUTTONS", "buttons": processed_buttons})
+            
+        final_payload = {
+            "name": name,
+            "language": language,
+            "category": category.upper(),
+            "components": components
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{base_url}/{secrets['wabaId']}/message_templates",
+                json=final_payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error in create_meta_template: {e}")
+        return {"error": str(e)}
+
 
 async def get_meta_templates(client_id, limit=None, after=None, before=None, status=None, fields=None):
     secrets = await get_secrets(client_id)
