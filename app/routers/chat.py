@@ -34,13 +34,30 @@ async def update_chat_endpoint(body: UpdateChatRequest = Body(...)):
             if body.unRead is not None:
                 chat.un_read = body.unRead
             if body.isFavourite is not None:
-                # Assuming is_favourite exists in model or handle it
-                # If it doesn't exist, we might need to add it to SQL model
                 chat.is_favourite = body.isFavourite
             if body.assignedAdmins is not None:
                 chat.assigned_admins = body.assignedAdmins
                 
             await session.commit()
+
+            # Sync to Firestore
+            try:
+                metadata = {}
+                if body.isActive is not None:
+                    metadata["isActive"] = body.isActive
+                if body.unRead is not None:
+                    metadata["unRead"] = body.unRead
+                if body.isFavourite is not None:
+                    metadata["isFavourite"] = body.isFavourite
+                if body.assignedAdmins is not None:
+                    metadata["assigned_admins"] = body.assignedAdmins
+                
+                if metadata:
+                    from app.services.firebase_service import sync_chat_metadata
+                    await sync_chat_metadata(body.chatId, body.clientId, metadata)
+            except Exception as fe:
+                logger.error(f"Error syncing chat state to Firestore: {fe}")
+
             return {"success": True}
         except Exception as e:
             logger.error(f"Error updating chat: {e}")
@@ -67,6 +84,25 @@ async def patch_chat_endpoint(body: UpdateChatRequest = Body(...)):
                 chat.assigned_admins = body.assignedAdmins
                 
             await session.commit()
+
+            # Sync to Firestore
+            try:
+                metadata = {}
+                if body.isActive is not None:
+                    metadata["isActive"] = body.isActive
+                if body.unRead is not None:
+                    metadata["unRead"] = body.unRead
+                if body.isFavourite is not None:
+                    metadata["isFavourite"] = body.isFavourite
+                if body.assignedAdmins is not None:
+                    metadata["assigned_admins"] = body.assignedAdmins
+                
+                if metadata:
+                    from app.services.firebase_service import sync_chat_metadata
+                    await sync_chat_metadata(body.chatId, body.clientId, metadata)
+            except Exception as fe:
+                logger.error(f"Error syncing chat state to Firestore: {fe}")
+
             return {"success": True}
         except Exception as e:
             logger.error(f"Error patching chat: {e}")
