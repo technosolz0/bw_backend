@@ -19,6 +19,8 @@ class Client(Base):
     name = Column(String, default="Messaging Portal")
     logo_url = Column(String)
     is_crm_enabled = Column(Boolean, default=False)
+    is_bot_activated = Column(Boolean, default=False)
+    is_upload_questions_enabled = Column(Boolean, default=False)
     admin_limit = Column(Integer, default=2)
     is_premium = Column(Boolean, default=True)
     subscription_expiry = Column(DateTime(timezone=True), nullable=True)
@@ -90,6 +92,9 @@ class UnansweredQuestion(Base):
     client_id = Column(String, ForeignKey("clients.client_id"))
     contact_id = Column(String)
     question = Column(Text)
+    status = Column(String, default="pending")
+    answer = Column(JSON, nullable=True)
+    when_answered = Column(DateTime(timezone=True), nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 

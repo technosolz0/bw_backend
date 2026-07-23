@@ -49,7 +49,20 @@ async def generate_content_with_file_search(client_id, prompt, api_key, store_id
     # Use system_instruction from config or default
     system_instruction = config.get("system_instruction") if config else DEFAULT_SYSTEM_PROMPT
 
-    tools = [
+    # Filter out empty/None store IDs
+    valid_store_ids = [sid for sid in store_ids if sid]
+    
+    tools = []
+    if valid_store_ids:
+        tools.append(
+            types.Tool(
+                file_search=types.FileSearch(
+                    file_search_store_names=valid_store_ids
+                )
+            )
+        )
+        
+    tools.append(
         types.Tool(
             function_declarations=[
                 types.FunctionDeclaration(
@@ -72,7 +85,7 @@ async def generate_content_with_file_search(client_id, prompt, api_key, store_id
                 )
             ]
         )
-    ]
+    )
 
     history = []
     if session_id:
@@ -150,10 +163,23 @@ async def log_unanswered_question(client_id, contact_id, question):
                 client_id=client_id,
                 contact_id=contact_id,
                 question=question,
+                status="pending",
                 timestamp=get_ist_time()
             )
             session.add(uq)
             await session.commit()
+            
+            # Sync to Firestore unanswered_questions
+            from app.services.firebase_service import db
+            from firebase_admin import firestore
+            if db:
+                ref = db.collection("unanswered_questions").document(client_id).collection("data").document(str(uq.id))
+                ref.set({
+                    "contactId": contact_id,
+                    "question": question,
+                    "status": "pending",
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
             
         logger.info(f"Unanswered question logged for contact {contact_id}")
     except Exception as e:

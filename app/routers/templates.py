@@ -45,7 +45,10 @@ async def get_templates(
     clientId: str = Query(None),
     limit: int = Query(None),
     after: str = Query(None),
-    before: str = Query(None)
+    before: str = Query(None),
+    status: str = Query(None),
+    category: str = Query(None),
+    language: str = Query(None)
 ):
     try:
         if not clientId:
@@ -53,9 +56,12 @@ async def get_templates(
              
         result = await get_meta_templates(
             clientId, 
-            limit, 
-            after, 
-            before
+            limit=limit, 
+            after=after, 
+            before=before,
+            status=status,
+            category=category,
+            language=language
         )
         
         if isinstance(result, dict) and "error" in result:

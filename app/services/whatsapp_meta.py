@@ -174,74 +174,138 @@ async def create_meta_template(client_id, template_data):
         
         components = []
         
-        # Header
-        header = template_data.get("header")
-        media_handle_id = template_data.get("media_handle_id")
-        media_type = template_data.get("mediaType")
-        
-        if media_handle_id:
-            components.append({
-                "type": "HEADER",
-                "format": media_type.upper() if media_type else "IMAGE",
-                "example": {"header_handle": [media_handle_id]}
-            })
-        elif header and header.strip():
-            h_comp = {
-                "type": "HEADER",
-                "format": "TEXT",
-                "text": header
-            }
-            # Meta documentation: Only include example if variables exist in header
-            if "{{" in header:
-                # If we don't have explicit header examples, we use the text itself as a fallback
-                # but ideally we should have separate values.
-                h_comp["example"] = {"header_text": [header]}
-            components.append(h_comp)
-
+        if template_type.upper() == "CAROUSEL" or template_data.get("cards"):
+            # Carousel templates require a BODY component at the top level
+            body = template_data.get("body")
+            body_examples = template_data.get("bodyExampleValues", [])
+            body_comp = {"type": "BODY", "text": body}
+            if body_examples:
+                body_comp["example"] = {"body_text": [body_examples]}
+            components.append(body_comp)
             
-        # Body
-        body = template_data.get("body")
-        body_examples = template_data.get("bodyExampleValues", [])
-        body_comp = {"type": "BODY", "text": body}
-        if body_examples:
-            body_comp["example"] = {"body_text": [body_examples]}
-        components.append(body_comp)
-        
-        # Footer
-        footer = template_data.get("footer")
-        if footer and footer.strip():
-            components.append({"type": "FOOTER", "text": footer})
-            
-        # Buttons
-        buttons_data = template_data.get("buttons", [])
-        if buttons_data:
-            processed_buttons = []
-            for b in buttons_data:
-                b_type: str = b.get("type", "QUICK_REPLY")
-                mapped: Dict[str, Any] = {}
+            # Build the CAROUSEL component
+            cards_list = []
+            cards_data = template_data.get("cards") or []
+            for card in cards_data:
+                card_components = []
                 
-                if b_type == "COPY_CODE":
-                    # COPY_CODE buttons have fixed text or use example as code
-                    mapped = {"type": "COPY_CODE"}
-                    if b.get("example"):
-                        # In Meta API, COPY_CODE example is a list of strings
-                        val = b["example"][0] if isinstance(b["example"], list) else b["example"]
-                        mapped["example"] = [str(val)]
-                elif b_type == "URL":
-                    mapped = {"type": "URL", "text": b.get("text", ""), "url": b.get("url", "")}
-                    if b.get("example"):
-                        # URL examples are usually a list of suffixes
-                        val = b["example"][0] if isinstance(b["example"], list) else b["example"]
-                        mapped["example"] = [str(val)]
-                elif b_type == "PHONE_NUMBER":
-                    mapped = {"type": "PHONE_NUMBER", "text": b.get("text", ""), "phone_number": b.get("phone_number", "")}
-                else: # QUICK_REPLY or others
-                    mapped = {"type": b_type, "text": b.get("text", "")}
-
-                    
-                processed_buttons.append(mapped)
+                # Card Header
+                media_type = card.get("mediaType", "IMAGE").upper()
+                media_handle = card.get("media_handle_id")
+                if media_handle:
+                    card_components.append({
+                        "type": "HEADER",
+                        "format": media_type,
+                        "example": {"header_handle": [media_handle]}
+                    })
+                
+                # Card Body
+                card_body = card.get("body")
+                card_body_examples = card.get("bodyExampleValues", [])
+                card_body_comp = {"type": "BODY", "text": card_body}
+                if card_body_examples:
+                    card_body_comp["example"] = {"body_text": [card_body_examples]}
+                card_components.append(card_body_comp)
+                
+                # Card Buttons
+                card_buttons = card.get("buttons", [])
+                if card_buttons:
+                    processed_card_buttons = []
+                    for b in card_buttons:
+                        b_type = b.get("type", "QUICK_REPLY")
+                        mapped = {}
+                        if b_type == "COPY_CODE":
+                            mapped = {"type": "COPY_CODE"}
+                            if b.get("example"):
+                                val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                                mapped["example"] = [str(val)]
+                        elif b_type == "URL":
+                            mapped = {"type": "URL", "text": b.get("text", ""), "url": b.get("url", "")}
+                            if b.get("example"):
+                                val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                                mapped["example"] = [str(val)]
+                        elif b_type == "PHONE_NUMBER":
+                            mapped = {"type": "PHONE_NUMBER", "text": b.get("text", ""), "phone_number": b.get("phone_number", "")}
+                        else:
+                            mapped = {"type": b_type, "text": b.get("text", "")}
+                        processed_card_buttons.append(mapped)
+                    card_components.append({"type": "BUTTONS", "buttons": processed_card_buttons})
+                
+                cards_list.append({"components": card_components})
+                
+            components.append({
+                "type": "CAROUSEL",
+                "cards": cards_list
+            })
+        else:
+            # Header
+            header = template_data.get("header")
+            media_handle_id = template_data.get("media_handle_id")
+            media_type = template_data.get("mediaType")
             
-            components.append({"type": "BUTTONS", "buttons": processed_buttons})
+            if media_handle_id:
+                components.append({
+                    "type": "HEADER",
+                    "format": media_type.upper() if media_type else "IMAGE",
+                    "example": {"header_handle": [media_handle_id]}
+                })
+            elif header and header.strip():
+                h_comp = {
+                    "type": "HEADER",
+                    "format": "TEXT",
+                    "text": header
+                }
+                # Meta documentation: Only include example if variables exist in header
+                if "{{" in header:
+                    # If we don't have explicit header examples, we use the text itself as a fallback
+                    # but ideally we should have separate values.
+                    h_comp["example"] = {"header_text": [header]}
+                components.append(h_comp)
+
+                
+            # Body
+            body = template_data.get("body")
+            body_examples = template_data.get("bodyExampleValues", [])
+            body_comp = {"type": "BODY", "text": body}
+            if body_examples:
+                body_comp["example"] = {"body_text": [body_examples]}
+            components.append(body_comp)
+            
+            # Footer
+            footer = template_data.get("footer")
+            if footer and footer.strip():
+                components.append({"type": "FOOTER", "text": footer})
+                
+            # Buttons
+            buttons_data = template_data.get("buttons", [])
+            if buttons_data:
+                processed_buttons = []
+                for b in buttons_data:
+                    b_type: str = b.get("type", "QUICK_REPLY")
+                    mapped: Dict[str, Any] = {}
+                    
+                    if b_type == "COPY_CODE":
+                        # COPY_CODE buttons have fixed text or use example as code
+                        mapped = {"type": "COPY_CODE"}
+                        if b.get("example"):
+                            # In Meta API, COPY_CODE example is a list of strings
+                            val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                            mapped["example"] = [str(val)]
+                    elif b_type == "URL":
+                        mapped = {"type": "URL", "text": b.get("text", ""), "url": b.get("url", "")}
+                        if b.get("example"):
+                            # URL examples are usually a list of suffixes
+                            val = b["example"][0] if isinstance(b["example"], list) else b["example"]
+                            mapped["example"] = [str(val)]
+                    elif b_type == "PHONE_NUMBER":
+                        mapped = {"type": "PHONE_NUMBER", "text": b.get("text", ""), "phone_number": b.get("phone_number", "")}
+                    else: # QUICK_REPLY or others
+                        mapped = {"type": b_type, "text": b.get("text", "")}
+
+                        
+                    processed_buttons.append(mapped)
+                
+                components.append({"type": "BUTTONS", "buttons": processed_buttons})
 
             
         final_payload = {
@@ -266,7 +330,7 @@ async def create_meta_template(client_id, template_data):
         return {"error": str(e)}
 
 
-async def get_meta_templates(client_id, limit=None, after=None, before=None, status=None, fields=None):
+async def get_meta_templates(client_id, limit=None, after=None, before=None, status=None, category=None, language=None, fields=None):
     try:
         secrets = await get_secrets(client_id)
         if not secrets or 'wabaId' not in secrets:
@@ -281,6 +345,8 @@ async def get_meta_templates(client_id, limit=None, after=None, before=None, sta
         if after: params["after"] = after
         if before: params["before"] = before
         if status: params["status"] = status
+        if category: params["category"] = category
+        if language: params["language"] = language
         if fields: params["fields"] = fields
         
         async with httpx.AsyncClient() as client:

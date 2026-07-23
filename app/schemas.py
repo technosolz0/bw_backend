@@ -15,6 +15,8 @@ class ClientBase(BaseModel):
     name: Optional[str] = "Messaging Portal"
     logo_url: Optional[str] = None
     is_crm_enabled: Optional[bool] = False
+    is_bot_activated: Optional[bool] = False
+    is_upload_questions_enabled: Optional[bool] = False
     admin_limit: Optional[int] = 2
     is_premium: Optional[bool] = True
     subscription_expiry: Optional[datetime] = None
@@ -35,6 +37,8 @@ class ClientUpdate(BaseModel):
     name: Optional[str] = None
     logo_url: Optional[str] = None
     is_crm_enabled: Optional[bool] = None
+    is_bot_activated: Optional[bool] = None
+    is_upload_questions_enabled: Optional[bool] = None
     is_premium: Optional[bool] = None
     admin_limit: Optional[int] = None
     subscription_expiry: Optional[datetime] = None
@@ -339,6 +343,9 @@ class TemplateCreate(BaseModel):
     
     # Extra fields that might be passed
     bodyExampleValues: Optional[List[Any]] = None
+    cards: Optional[List[Dict]] = None
+    version: Optional[str] = None
+    ctaUrlLinkTrackingOptedOut: Optional[bool] = None
 
 class DeleteTemplateRequest(BaseModel):
     name: Optional[str] = None

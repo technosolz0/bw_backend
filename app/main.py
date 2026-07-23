@@ -5,7 +5,7 @@ from sqlalchemy.future import select
 from dotenv import load_dotenv
 import os
 import logging
-from app.routers import webhook, analytics, tools, chat, profile, templates, migration, scheduler, broadcasts, auth, clients, admins, roles
+from app.routers import webhook, analytics, tools, chat, profile, templates, migration, scheduler, broadcasts, auth, clients, admins, roles, chatbot
 from control.routes import router as control_router
 import control.models
 
@@ -40,6 +40,7 @@ app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(admins.router)
 app.include_router(roles.router)
+app.include_router(chatbot.router)
 app.include_router(control_router)
 
 from app.database import init_db, AsyncSessionLocal
