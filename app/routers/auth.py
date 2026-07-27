@@ -24,8 +24,18 @@ async def login(body: LoginRequest = Body(...)):
         )
         admin = result.scalars().first()
         
-        # Checking plain text password for alignment with Firestore legacy logic
-        if not admin or admin.password != body.password:
+        # Checking password (direct compare for hashed, or hash db plain text if it was stored plain)
+        is_authenticated = False
+        if admin:
+            if admin.password == body.password:
+                is_authenticated = True
+            else:
+                import hashlib
+                db_password_hashed = hashlib.sha256(admin.password.encode('utf-8')).hexdigest()
+                if db_password_hashed == body.password:
+                    is_authenticated = True
+
+        if not is_authenticated:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
