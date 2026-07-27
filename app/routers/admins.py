@@ -55,7 +55,17 @@ async def add_admin(admin_data: AdminCreate):
             if result.scalars().first():
                 raise HTTPException(status_code=400, detail="Email already exists")
                 
-            new_admin = Admin(**admin_data.dict())
+            # Check if the requested ID already exists in the database
+            id_check = await session.execute(
+                select(Admin).where(Admin.id == admin_data.id)
+            )
+            admin_dict = admin_data.dict()
+            if id_check.scalars().first():
+                import uuid
+                admin_dict['id'] = str(uuid.uuid4())
+                logger.info(f"Admin ID conflict: generated new UUID {admin_dict['id']} for new admin")
+                
+            new_admin = Admin(**admin_dict)
             session.add(new_admin)
             await session.commit()
             return {"success": True, "adminId": new_admin.id}
