@@ -30,7 +30,8 @@ async def get_secrets(client_id: str):
             "qnaStoreId": client.qna_store_id,
             "googleApiKey": client.google_api_key,
             "isBotActivated": client.is_bot_activated,
-            "isUploadQuestionsEnabled": client.is_upload_questions_enabled
+            "isUploadQuestionsEnabled": client.is_upload_questions_enabled,
+            "accessToken": client.access_token
         }
 
 def get_base_url():

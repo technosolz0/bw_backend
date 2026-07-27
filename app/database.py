@@ -33,6 +33,7 @@ async def init_db():
         # Ensure new columns exist on client table
         await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_bot_activated BOOLEAN DEFAULT FALSE;"))
         await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_upload_questions_enabled BOOLEAN DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS access_token VARCHAR;"))
         await conn.execute(text("ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'pending';"))
         await conn.execute(text("ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS answer JSON DEFAULT NULL;"))
         await conn.execute(text("ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS when_answered TIMESTAMP WITH TIME ZONE DEFAULT NULL;"))

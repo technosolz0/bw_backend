@@ -14,6 +14,7 @@ class ClientBase(BaseModel):
     google_api_key: Optional[str] = None
     name: Optional[str] = "Messaging Portal"
     logo_url: Optional[str] = None
+    access_token: Optional[str] = None
     is_crm_enabled: Optional[bool] = False
     is_bot_activated: Optional[bool] = False
     is_upload_questions_enabled: Optional[bool] = False
@@ -36,6 +37,7 @@ class ClientUpdate(BaseModel):
     google_api_key: Optional[str] = None
     name: Optional[str] = None
     logo_url: Optional[str] = None
+    access_token: Optional[str] = None
     is_crm_enabled: Optional[bool] = None
     is_bot_activated: Optional[bool] = None
     is_upload_questions_enabled: Optional[bool] = None

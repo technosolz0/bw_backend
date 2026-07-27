@@ -297,7 +297,7 @@ async def send_whatsapp_message_helper(request_body: dict):
         logger.info(f"Sending WhatsApp message: {payload}")
 
         base_url = get_base_url()
-        token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
+        token = secrets.get("accessToken") or os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -402,7 +402,7 @@ async def send_whatsapp_message_helper(request_body: dict):
 async def mark_message_as_read(secrets, message_id, add_typing_indicator=False):
     try:
         base_url = get_base_url()
-        token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
+        token = secrets.get("accessToken") or os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
         
         payload = {
             "messaging_product": "whatsapp",
@@ -456,7 +456,7 @@ async def refund_message_cost(client_id, broadcast_id, cost):
 async def download_and_upload_media(client_id, secrets, media_id, mime_type, original_filename=None, message_id=None):
     max_retries = 2
     base_url = get_base_url()
-    token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
+    token = secrets.get("accessToken") or os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
     
     # Get server URL and ensure no trailing slash
     server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")

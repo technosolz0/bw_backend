@@ -6,7 +6,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def get_meta_token():
+async def get_meta_token(secrets: dict = None):
+    if secrets and secrets.get("accessToken"):
+        return secrets["accessToken"]
     # Prefer META_TOKEN, fallback to INTERAKT_TOKEN
     return os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
 
@@ -29,7 +31,7 @@ async def create_media_handle(secrets, file_content, file_name, mime_type):
     # Implements Resumable Upload API to get a handle
     try:
         base_url = get_base_url()
-        token = await get_meta_token()
+        token = await get_meta_token(secrets)
         app_id = await get_app_id(token)
         
         if not app_id:
@@ -81,7 +83,7 @@ async def create_media_handle(secrets, file_content, file_name, mime_type):
 async def create_media_id(secrets, file_content, file_name, mime_type):
     try:
         base_url = get_base_url()
-        token = await get_meta_token()
+        token = await get_meta_token(secrets)
         
         url = f"{base_url}/{secrets['phoneNumberId']}/media"
         
@@ -116,7 +118,7 @@ async def get_whatsapp_business_profile(client_id):
         raise ValueError("Secrets not found")
         
     base_url = get_base_url()
-    token = await get_meta_token()
+    token = await get_meta_token(secrets)
     
     url = f"{base_url}/{secrets['phoneNumberId']}/whatsapp_business_profile"
     params = {
@@ -141,7 +143,7 @@ async def update_whatsapp_business_profile(client_id, payload):
         raise ValueError("Secrets not found")
         
     base_url = get_base_url()
-    token = await get_meta_token()
+    token = await get_meta_token(secrets)
     
     url = f"{base_url}/{secrets['phoneNumberId']}/whatsapp_business_profile"
     
@@ -162,7 +164,7 @@ async def create_meta_template(client_id, template_data):
     try:
         secrets = await get_secrets(client_id)
         base_url = get_base_url()
-        token = await get_meta_token()
+        token = await get_meta_token(secrets)
         
         # Construct payload logic based on template_data
         # This logic matches createMetaTemplate in templateHandler.js
@@ -338,7 +340,7 @@ async def get_meta_templates(client_id, limit=None, after=None, before=None, sta
             return {"error": "WABA ID not found", "success": False}
             
         base_url = get_base_url()
-        token = await get_meta_token()
+        token = await get_meta_token(secrets)
         
         params = {}
         if limit: params["limit"] = limit
@@ -370,7 +372,7 @@ async def get_meta_templates(client_id, limit=None, after=None, before=None, sta
 async def delete_meta_template(client_id, name):
     secrets = await get_secrets(client_id)
     base_url = get_base_url()
-    token = await get_meta_token()
+    token = await get_meta_token(secrets)
     
     import urllib.parse
     encoded_name = urllib.parse.quote(name)
@@ -403,7 +405,7 @@ async def send_template_message(
     """
     try:
         base_url = get_base_url()
-        token = await get_meta_token()
+        token = await get_meta_token(secrets)
         
         # Determine the components
         components = []

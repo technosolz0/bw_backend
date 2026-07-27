@@ -104,7 +104,8 @@ async def add_client(client_data: ClientCreate):
                 admin_limit=client_data.admin_limit,
                 is_premium=client_data.is_premium,
                 subscription_expiry=client_data.subscription_expiry,
-                status=client_data.status
+                status=client_data.status,
+                access_token=client_data.access_token
             )
             session.add(new_client)
             

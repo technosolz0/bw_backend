@@ -18,6 +18,7 @@ class Client(Base):
     google_api_key = Column(String)
     name = Column(String, default="Messaging Portal")
     logo_url = Column(String)
+    access_token = Column(String)
     is_crm_enabled = Column(Boolean, default=False)
     is_bot_activated = Column(Boolean, default=False)
     is_upload_questions_enabled = Column(Boolean, default=False)

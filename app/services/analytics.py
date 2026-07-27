@@ -17,7 +17,7 @@ async def fetch_conversation_analytics(secrets, start, end, granularity):
         base_url = get_base_url()
         waba_id = secrets.get("wabaId")
         phone_number = secrets.get("phoneNumber")
-        token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
+        token = secrets.get("accessToken") or os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
         
         analytics_url = f"{base_url}/{waba_id}"
         params = {
@@ -49,7 +49,7 @@ async def fetch_messages_analytics(secrets, start, end, granularity):
         base_url = get_base_url()
         waba_id = secrets.get("wabaId")
         phone_number = secrets.get("phoneNumber")
-        token = os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
+        token = secrets.get("accessToken") or os.getenv("META_TOKEN") or os.getenv("INTERAKT_TOKEN")
 
         analytics_url = f"{base_url}/{waba_id}"
         fields = f"analytics.start({start}).end({end}).granularity({messages_granularity}).phone_numbers([{phone_number}]).product_types([0,2])"
