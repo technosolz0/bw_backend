@@ -195,6 +195,23 @@ class Broadcast(Base):
     
     status = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Added columns for API migration
+    broadcast_name = Column(String)
+    description = Column(String)
+    invocation_failures = Column(Integer, default=0)
+    completed_at = Column(DateTime(timezone=True))
+    template_variables = Column(JSON)
+    media_id = Column(String)
+    delivery_type = Column(Integer)
+    delivery_timestamp = Column(DateTime(timezone=True))
+    total_cost = Column(Float, default=0.0)
+    clicks = Column(Integer, default=0)
+    replied = Column(Integer, default=0)
+    enable_retry = Column(Boolean, default=False)
+    retry_campaign_status = Column(String)
+    card_variables = Column(JSON)
+    card_attachment_ids = Column(JSON)
     
     client = relationship("Client", back_populates="broadcasts")
     messages = relationship("BroadcastMessage", back_populates="broadcast")

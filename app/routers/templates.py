@@ -77,7 +77,7 @@ async def get_templates(
 @router.get("/getApprovedTemplates")
 async def get_approved(clientId: str = Query(...)):
     try:
-        result = await get_meta_templates(clientId, status="APPROVED", fields="name,category")
+        result = await get_meta_templates(clientId, status="APPROVED", fields="id,name,category,status,language,components")
         
         if isinstance(result, dict) and "error" in result:
              return {"success": False, "error": result["error"]}

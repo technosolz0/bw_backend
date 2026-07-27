@@ -9,10 +9,12 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest, BroadcastUpdate
+from app.schemas import BroadcastStartRequest, BroadcastCreateRequest, SendTemplateMessageRequest, BroadcastUpdate, BroadcastQueueRequest
 from app.services.firebase_service import sync_broadcast_stats, sync_chat_metadata, sync_message
 from app.services.chat import ensure_contact_and_chat, create_template_chat_message, increment_daily_stats, get_ist_time
-from app.models.sql_models import Broadcast, BroadcastMessage, Template, Message, Chat
+from app.models.sql_models import Broadcast, BroadcastMessage, Template, Message, Chat, DailyStats, WalletHistory
+from app.services.broadcasts import parse_iso_datetime
+from sqlalchemy import func, delete
 
 @router.post("/sendTemplateMessage")
 async def send_template_message_endpoint(body: SendTemplateMessageRequest):
@@ -41,7 +43,7 @@ async def send_template_message_endpoint(body: SendTemplateMessageRequest):
         
         if body.buttonVariables:
             button_payloads = [b.get("payload") for b in body.buttonVariables if b.get("payload")]
-
+ 
         from app.services.whatsapp_meta import send_template_message
         response = await send_template_message(
             client_id=client_id,
@@ -135,7 +137,7 @@ async def send_template_message_endpoint(body: SendTemplateMessageRequest):
             except Exception as persistence_err:
                 logger.error(f"Failed to persist template message: {persistence_err}")
                 await session.rollback()
-
+ 
         # Update stats
         today = get_ist_time().strftime("%Y-%m-%d")
         await increment_daily_stats(client_id, today, 'sent')
@@ -144,7 +146,7 @@ async def send_template_message_endpoint(body: SendTemplateMessageRequest):
     except Exception as e:
         logger.error(f"Error sending template message: {e}")
         return Response(content=str(e), status_code=500)
-
+ 
 @router.post("/startBroadcast")
 async def start_broadcast_endpoint(body: BroadcastStartRequest):
     try:
@@ -157,6 +159,17 @@ async def start_broadcast_endpoint(body: BroadcastStartRequest):
         logger.error(f"Error starting broadcast: {e}")
         return Response(content=str(e), status_code=500)
 
+@router.post("/queueBroadcast")
+async def queue_broadcast_endpoint(body: BroadcastQueueRequest):
+    try:
+        client_id = body.clientId
+        broadcast_id = body.broadcastId
+        result = await start_broadcast(client_id, broadcast_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error queuing broadcast: {e}")
+        return Response(content=str(e), status_code=500)
+ 
 @router.post("/createBroadcast")
 async def create_broadcast_endpoint(body: BroadcastCreateRequest):
     try:
@@ -167,7 +180,7 @@ async def create_broadcast_endpoint(body: BroadcastCreateRequest):
     except Exception as e:
         logger.error(f"Error creating broadcast: {e}")
         return Response(content=str(e), status_code=500)
-
+ 
 @router.patch("/patchBroadcast")
 async def patch_broadcast(broadcastId: str = Query(...), body: BroadcastUpdate = Body(...)):
     async with AsyncSessionLocal() as session:
@@ -197,19 +210,31 @@ async def patch_broadcast(broadcastId: str = Query(...), body: BroadcastUpdate =
         except Exception as e:
             logger.error(f"Error patching broadcast: {e}")
             return Response(content=str(e), status_code=500)
-
+ 
 @router.get("/getBroadcasts")
-async def get_broadcasts(clientId: str):
+async def get_broadcasts(
+    clientId: str = Query(...),
+    page: int = Query(None),
+    pageSize: int = Query(None)
+):
     async with AsyncSessionLocal() as session:
         try:
-            result = await session.execute(
-                 select(Broadcast).where(Broadcast.client_id == clientId).order_by(Broadcast.created_at.desc())
+            count_result = await session.execute(
+                select(func.count(Broadcast.id)).where(Broadcast.client_id == clientId)
             )
+            total_count = count_result.scalar() or 0
+            
+            query = select(Broadcast).where(Broadcast.client_id == clientId).order_by(Broadcast.created_at.desc())
+            if page is not None and pageSize is not None:
+                offset = (page - 1) * pageSize
+                query = query.offset(offset).limit(pageSize)
+                
+            result = await session.execute(query)
             broadcasts = result.scalars().all()
-            return {"success": True, "data": broadcasts}
+            return {"success": True, "data": broadcasts, "totalCount": total_count}
         except Exception as e:
             return Response(content=str(e), status_code=500)
-
+ 
 @router.get("/getBroadcastDetails")
 async def get_broadcast_details(broadcastId: str):
     async with AsyncSessionLocal() as session:
@@ -229,5 +254,91 @@ async def get_broadcast_details(broadcastId: str):
                 "broadcast": broadcast,
                 "messages": messages
             }
+        except Exception as e:
+            return Response(content=str(e), status_code=500)
+
+@router.post("/deleteBroadcast")
+async def delete_broadcast_endpoint(
+    clientId: str = Query(...),
+    broadcastId: str = Query(...),
+    completedAt: Optional[str] = Query(None),
+    sent: Optional[int] = Query(None),
+    delivered: Optional[int] = Query(None),
+    read: Optional[int] = Query(None)
+):
+    async with AsyncSessionLocal() as session:
+        try:
+            if completedAt:
+                parsed_date = parse_iso_datetime(completedAt)
+                if parsed_date:
+                    date_id = parsed_date.strftime("%Y-%m-%d")
+                    stats_res = await session.execute(
+                        select(DailyStats).where(DailyStats.client_id == clientId, DailyStats.date == date_id)
+                    )
+                    stats = stats_res.scalars().first()
+                    if stats:
+                        if sent:
+                            stats.total_sent = max(0, (stats.total_sent or 0) - sent)
+                        if delivered:
+                            stats.total_delivered = max(0, (stats.total_delivered or 0) - delivered)
+                        if read:
+                            stats.total_read = max(0, (stats.total_read or 0) - read)
+            
+            await session.execute(
+                delete(BroadcastMessage).where(BroadcastMessage.broadcast_id == broadcastId)
+            )
+            await session.execute(
+                delete(WalletHistory).where(WalletHistory.broadcast_id == broadcastId)
+            )
+            await session.execute(
+                delete(Broadcast).where(Broadcast.id == broadcastId, Broadcast.client_id == clientId)
+            )
+            await session.commit()
+            return {"success": True, "message": "Broadcast deleted successfully"}
+        except Exception as e:
+            logger.error(f"Error deleting broadcast: {e}")
+            await session.rollback()
+            return Response(content=str(e), status_code=500)
+
+@router.get("/getBroadcastChargeableAmount")
+async def get_broadcast_chargeable_amount(broadcastId: str = Query(...), clientId: str = Query(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(WalletHistory).where(WalletHistory.broadcast_id == broadcastId, WalletHistory.client_id == clientId)
+            )
+            history = result.scalars().first()
+            if history:
+                return {"success": True, "chargeable_amount": history.chargeable_amount}
+            return {"success": True, "chargeable_amount": 0.0}
+        except Exception as e:
+            return Response(content=str(e), status_code=500)
+
+@router.get("/getUsedQuota")
+async def get_used_quota(clientId: str = Query(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            today = get_ist_time().strftime("%Y-%m-%d")
+            result = await session.execute(
+                select(DailyStats).where(DailyStats.client_id == clientId, DailyStats.date == today)
+            )
+            stats = result.scalars().first()
+            return {"success": True, "usedQuota": stats.total_sent if stats else 0}
+        except Exception as e:
+            return Response(content=str(e), status_code=500)
+
+@router.get("/getActiveBroadcastsCount")
+async def get_active_broadcasts_count(clientId: str = Query(...)):
+    async with AsyncSessionLocal() as session:
+        try:
+            active_statuses = ["Sending", "Pending", "Scheduled"]
+            result = await session.execute(
+                select(func.count(Broadcast.id)).where(
+                    Broadcast.client_id == clientId,
+                    Broadcast.status.in_(active_statuses)
+                )
+            )
+            count = result.scalar() or 0
+            return {"success": True, "count": count}
         except Exception as e:
             return Response(content=str(e), status_code=500)

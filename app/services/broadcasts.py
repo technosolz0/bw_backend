@@ -211,32 +211,69 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                 broadcast.status = "Failed"
                 await session.commit()
 
+def parse_iso_datetime(dt_str):
+    if not dt_str:
+        return None
+    try:
+        cleaned = dt_str.replace('Z', '+00:00')
+        return datetime.datetime.fromisoformat(cleaned)
+    except Exception:
+        try:
+            return datetime.datetime.strptime(dt_str.split('.')[0], "%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            return None
+
 async def create_broadcast_record(client_id: str, data: dict):
     """
     Creates Broadcast and BroadcastMessage hooks.
-    Data format: {templateId, adminName, attachmentId, audienceType, contacts: [{mobileNo, bodyVariables, ...}], totalCost}
     """
     async with AsyncSessionLocal() as session:
-        broadcast_id = str(uuid.uuid4())
+        broadcast_id = data.get("id") or str(uuid.uuid4())
+        
+        # Overwrite protection: delete existing records with this broadcast_id if present
+        if data.get("id"):
+            # Check if it exists
+            exists_res = await session.execute(select(Broadcast).where(Broadcast.id == broadcast_id))
+            if exists_res.scalars().first():
+                await session.execute(delete(BroadcastMessage).where(BroadcastMessage.broadcast_id == broadcast_id))
+                await session.execute(delete(WalletHistory).where(WalletHistory.broadcast_id == broadcast_id))
+                await session.execute(delete(Broadcast).where(Broadcast.id == broadcast_id))
+        
+        delivery_timestamp_dt = parse_iso_datetime(data.get("deliveryTimestamp"))
+        status = data.get("status") or "Draft"
         
         new_broadcast = Broadcast(
             id=broadcast_id,
             client_id=client_id,
+            broadcast_name=data.get("broadcastName"),
+            description=data.get("description"),
             template_id=data.get("templateId"),
             admin_name=data.get("adminName"),
             attachment_id=data.get("attachmentId"),
             audience_type=data.get("audienceType"),
-            status="Draft",
+            status=status,
             sent=0,
             delivered=0,
             read=0,
             failed=0,
-            created_at=get_ist_time()
+            created_at=get_ist_time(),
+            template_variables=data.get("templateVariables"),
+            media_id=data.get("mediaId"),
+            delivery_type=data.get("deliveryType"),
+            delivery_timestamp=delivery_timestamp_dt,
+            total_cost=data.get("totalCost", 0.0),
+            clicks=0,
+            replied=0,
+            enable_retry=data.get("enableRetry", False),
+            retry_campaign_status=data.get("retryCampaignStatus"),
+            card_variables=data.get("cardVariables"),
+            card_attachment_ids=data.get("cardAttachmentIds"),
+            contact_ids=data.get("contactIds")
         )
         session.add(new_broadcast)
         
         # Add messages
-        contacts = data.get("contacts", [])
+        contacts = data.get("contacts", []) or []
         for c in contacts:
             msg_id = str(uuid.uuid4())
             # Construct payload for BroadcastMessage
@@ -260,21 +297,27 @@ async def create_broadcast_record(client_id: str, data: dict):
             )
             session.add(b_msg)
             
-        # Deduct wallet
-        total_cost = data.get("totalCost", 0.0)
-        await session.execute(
-            update(Wallet).where(Wallet.client_id == client_id).values(balance=Wallet.balance - total_cost)
-        )
-        
-        # History
-        history = WalletHistory(
-            id=str(uuid.uuid4()),
-            client_id=client_id,
-            broadcast_id=broadcast_id,
-            chargeable_messages=len(contacts),
-            chargeable_amount=total_cost
-        )
-        session.add(history)
+        # Deduct wallet only if status is not Draft
+        if status.lower() != "draft":
+            total_cost = data.get("totalCost", 0.0)
+            # Check if wallet exists for this client first
+            w_res = await session.execute(select(Wallet).where(Wallet.client_id == client_id))
+            wallet = w_res.scalars().first()
+            if not wallet:
+                wallet = Wallet(client_id=client_id, balance=0.0)
+                session.add(wallet)
+            
+            wallet.balance = wallet.balance - total_cost
+            
+            # History
+            history = WalletHistory(
+                id=str(uuid.uuid4()),
+                client_id=client_id,
+                broadcast_id=broadcast_id,
+                chargeable_messages=len(contacts),
+                chargeable_amount=total_cost
+            )
+            session.add(history)
         
         await session.commit()
         return broadcast_id

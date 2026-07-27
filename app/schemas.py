@@ -493,8 +493,17 @@ class BroadcastStartRequest(BaseModel):
     clientId: str
     broadcastId: str
 
+class BroadcastQueueRequest(BaseModel):
+    clientId: str
+    broadcastId: str
+    isScheduled: Optional[bool] = False
+    scheduledTimestamp: Optional[str] = None
+
 class BroadcastCreateRequest(BaseModel):
     clientId: str
+    id: Optional[str] = None
+    broadcastName: Optional[str] = None
+    description: Optional[str] = None
     templateId: Optional[str] = None
     templateName: Optional[str] = None
     language: Optional[str] = None
@@ -507,6 +516,13 @@ class BroadcastCreateRequest(BaseModel):
     buttonVariables: Optional[List[Any]] = None
     messageCost: Optional[float] = 0.0
     totalCost: Optional[float] = 0.0
+    deliveryType: Optional[int] = None
+    deliveryTimestamp: Optional[str] = None
+    templateVariables: Optional[List[Any]] = None
+    cardVariables: Optional[List[Any]] = None
+    cardAttachmentIds: Optional[List[str]] = None
+    contactIds: Optional[List[str]] = None
+    status: Optional[str] = None
 
 class AnalyticsRequest(BaseModel):
     clientId: str
