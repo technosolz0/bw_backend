@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Request, Response, BackgroundTasks, Body, Query, HTTPException
 from app.services.broadcasts import start_broadcast, create_broadcast_record
 from app.services.whatsapp_meta import get_secrets
