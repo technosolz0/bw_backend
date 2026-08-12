@@ -106,6 +106,7 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                     msg.status = "sent"
                     msg.whatsapp_message_id = whatsapp_message_id
                     msg.sent_at = get_ist_time()
+                    broadcast.sent = (broadcast.sent or 0) + 1
                     
                     # 📊 Persist to Message Table & Sync to Firestore
                     try:
@@ -191,6 +192,7 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                 except Exception as e:
                     logger.error(f"Failed to send message {msg.id}: {e}")
                     msg.status = "failed"
+                    broadcast.failed = (broadcast.failed or 0) + 1
                     code = 500
                     if hasattr(e, "response") and getattr(e.response, "text", None):
                         try:

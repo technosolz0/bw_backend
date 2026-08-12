@@ -556,40 +556,42 @@ async def handle_message_status_update(client_id, value):
             b_msg = result.scalars().first()
             
             if b_msg:
-                # Update BroadcastMessage
-                if b_msg.status == status: continue
-                
-                b_msg.status = status
-                
                 # Fetch Broadcast to update stats
                 b_result = await session.execute(select(Broadcast).where(Broadcast.id == b_msg.broadcast_id))
                 broadcast = b_result.scalars().first()
                 if not broadcast: continue
 
                 if status == 'failed':
-                    b_msg.error_code = status_obj.get("errors", [{}])[0].get("code")
-                    b_msg.failed_at = status_timestamp
-                    broadcast.failed += 1
-                    # Refund
-                    await refund_message_cost(client_id, broadcast.id, b_msg.cost)
-                    await increment_daily_stats(client_id, today, 'failed')
-                    
-                elif status == 'sent':
-                    b_msg.sent_at = status_timestamp
-                    broadcast.sent += 1
-                    if not billable:
+                    if not b_msg.failed_at:
+                        b_msg.failed_at = status_timestamp
+                        b_msg.error_code = status_obj.get("errors", [{}])[0].get("code")
+                        b_msg.status = "failed"
+                        broadcast.failed = (broadcast.failed or 0) + 1
                         await refund_message_cost(client_id, broadcast.id, b_msg.cost)
-                    await increment_daily_stats(client_id, today, 'sent')
-                    
+                        await increment_daily_stats(client_id, today, 'failed')
+                elif status == 'sent':
+                    if not b_msg.sent_at:
+                        b_msg.sent_at = status_timestamp
+                        broadcast.sent = (broadcast.sent or 0) + 1
+                        if not billable:
+                            await refund_message_cost(client_id, broadcast.id, b_msg.cost)
+                        await increment_daily_stats(client_id, today, 'sent')
+                    if b_msg.status != 'delivered' and b_msg.status != 'read' and b_msg.status != 'failed':
+                        b_msg.status = "sent"
                 elif status == 'delivered':
-                    b_msg.delivered_at = status_timestamp
-                    broadcast.delivered += 1
-                    await increment_daily_stats(client_id, today, 'delivered')
-                    
+                    if not b_msg.delivered_at:
+                        b_msg.delivered_at = status_timestamp
+                        broadcast.delivered = (broadcast.delivered or 0) + 1
+                        await increment_daily_stats(client_id, today, 'delivered')
+                    if b_msg.status != 'read' and b_msg.status != 'failed':
+                        b_msg.status = "delivered"
                 elif status == 'read':
-                    b_msg.read_at = status_timestamp
-                    broadcast.read += 1
-                    await increment_daily_stats(client_id, today, 'read')
+                    if not b_msg.read_at:
+                        b_msg.read_at = status_timestamp
+                        broadcast.read = (broadcast.read or 0) + 1
+                        await increment_daily_stats(client_id, today, 'read')
+                    if b_msg.status != 'failed':
+                        b_msg.status = "read"
                 
                 await session.commit()
                 
