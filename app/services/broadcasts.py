@@ -191,7 +191,21 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                 except Exception as e:
                     logger.error(f"Failed to send message {msg.id}: {e}")
                     msg.status = "failed"
-                    msg.error_code = str(e)
+                    code = 500
+                    if hasattr(e, "response") and getattr(e.response, "status_code", None):
+                        try:
+                            code = int(e.response.status_code)
+                        except Exception:
+                            code = 500
+                    elif "400" in str(e):
+                        code = 400
+                    elif "401" in str(e):
+                        code = 401
+                    elif "403" in str(e):
+                        code = 403
+                    elif "404" in str(e):
+                        code = 404
+                    msg.error_code = code
                     msg.failed_at = get_ist_time()
                     
                     await refund_message_cost(client_id, broadcast_id, msg.cost)
@@ -272,14 +286,44 @@ async def create_broadcast_record(client_id: str, data: dict):
         )
         session.add(new_broadcast)
         
+        # Resolve template_name and language if missing
+        template_name = data.get("templateName")
+        language = data.get("language")
+        if not template_name or not language:
+            template_id = data.get("templateId")
+            if template_id:
+                t_res = await session.execute(
+                    select(Template).where(
+                        (Template.id == template_id) | (Template.name == template_id),
+                        Template.client_id == client_id
+                    )
+                )
+                t_rec = t_res.scalars().first()
+                if t_rec:
+                    template_name = template_name or t_rec.name
+                    language = language or t_rec.language
+            
+            if not template_name or not language:
+                try:
+                    from app.services.whatsapp_meta import get_meta_templates
+                    meta_res = await get_meta_templates(client_id, status="APPROVED", fields="id,name,language")
+                    if isinstance(meta_res, dict) and "data" in meta_res:
+                        for tmpl in meta_res.get("data", []):
+                            if str(tmpl.get("id")) == str(data.get("templateId")) or tmpl.get("name") == str(data.get("templateId")):
+                                template_name = template_name or tmpl.get("name")
+                                language = language or tmpl.get("language")
+                                break
+                except Exception as fallback_err:
+                    logger.warning(f"Meta fallback template lookup failed: {fallback_err}")
+
         # Add messages
         contacts = data.get("contacts", []) or []
         for c in contacts:
             msg_id = str(uuid.uuid4())
             # Construct payload for BroadcastMessage
             payload = {
-                "template": data.get("templateName"),
-                "language": data.get("language"),
+                "template": template_name,
+                "language": language or "en_US",
                 "type": data.get("type"),
                 "bodyVariables": c.get("bodyVariables"),
                 "headerVariables": data.get("headerVariables"),
