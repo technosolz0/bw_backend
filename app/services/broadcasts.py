@@ -192,18 +192,27 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                     logger.error(f"Failed to send message {msg.id}: {e}")
                     msg.status = "failed"
                     code = 500
-                    if hasattr(e, "response") and getattr(e.response, "status_code", None):
+                    if hasattr(e, "response") and getattr(e.response, "text", None):
+                        try:
+                            err_json = e.response.json()
+                            if isinstance(err_json, dict) and "error" in err_json:
+                                meta_code = err_json["error"].get("code")
+                                if isinstance(meta_code, int):
+                                    code = meta_code
+                        except Exception:
+                            pass
+                    if code == 500 and hasattr(e, "response") and getattr(e.response, "status_code", None):
                         try:
                             code = int(e.response.status_code)
                         except Exception:
                             code = 500
-                    elif "400" in str(e):
+                    elif code == 500 and "400" in str(e):
                         code = 400
-                    elif "401" in str(e):
+                    elif code == 500 and "401" in str(e):
                         code = 401
-                    elif "403" in str(e):
+                    elif code == 500 and "403" in str(e):
                         code = 403
-                    elif "404" in str(e):
+                    elif code == 500 and "404" in str(e):
                         code = 404
                     msg.error_code = code
                     msg.failed_at = get_ist_time()

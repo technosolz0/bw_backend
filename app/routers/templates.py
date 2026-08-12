@@ -82,6 +82,10 @@ async def get_approved(clientId: str = Query(...)):
         if isinstance(result, dict) and "error" in result:
              return {"success": False, "error": result["error"]}
              
+        if isinstance(result, dict) and "data" in result and isinstance(result["data"], list):
+             # Filter out Meta default sample template 'hello_world' which is restricted to test numbers
+             result["data"] = [t for t in result["data"] if t.get("name") != "hello_world"]
+
         return {"success": True, "data": result}
 
     except Exception as e:
