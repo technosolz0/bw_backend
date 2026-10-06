@@ -308,8 +308,25 @@ async def handle_chat_message(client_id, value):
                 })
                 logger.info(f"✅ Chat metadata synced for {contact_id}")
                 
-                # AI Response Logic
-                if ai_response_enabled:
+                # Automation Logic
+                automation_handled = False
+                try:
+                    from app.services.automation_service import execute_automation
+                    automation_handled = await execute_automation(
+                        client_id=actual_client_id,
+                        contact_id=contact_id,
+                        phone_number=phone_number,
+                        message_text=message_text,
+                        message_type=message_type
+                    )
+                    if automation_handled:
+                        await mark_message_as_read(secrets, message_id, True)
+                        has_ai_response = True
+                except Exception as e:
+                    logger.error(f"Automation Execution Error: {e}", exc_info=True)
+
+                # AI Response Logic (only run if not already handled by automation)
+                if not automation_handled and ai_response_enabled:
                     await mark_message_as_read(secrets, message_id, True)
                     if message_type == 'text':
                         try:
