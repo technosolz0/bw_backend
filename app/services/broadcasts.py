@@ -274,6 +274,7 @@ async def create_broadcast_record(client_id: str, data: dict):
             description=data.get("description"),
             template_id=data.get("templateId"),
             admin_name=data.get("adminName"),
+            admin_id=data.get("adminId"),
             attachment_id=data.get("attachmentId"),
             audience_type=data.get("audienceType"),
             status=status,

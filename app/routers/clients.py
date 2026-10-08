@@ -27,6 +27,12 @@ async def get_client_details(clientId: str = Query(...)):
                     "adminLimit": 0
                 }
                 
+            wallet_result = await session.execute(
+                select(Wallet).where(Wallet.client_id == clientId)
+            )
+            wallet = wallet_result.scalars().first()
+            wallet_balance = float(wallet.balance) if wallet and wallet.balance is not None else 0.0
+
             return {
                 "name": client.name,
                 "logoUrl": client.logo_url or "",
@@ -38,7 +44,9 @@ async def get_client_details(clientId: str = Query(...)):
                 "adminLimit": getattr(client, 'admin_limit', 0),
                 "isPremium": getattr(client, 'is_premium', False),
                 "subscriptionExpiry": client.subscription_expiry.isoformat() if client.subscription_expiry else None,
-                "status": client.status
+                "status": client.status,
+                "walletBalance": wallet_balance,
+                "wallet_balance": wallet_balance
             }
         except Exception as e:
             logger.error(f"Error fetching client details: {e}")

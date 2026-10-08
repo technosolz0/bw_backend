@@ -4,6 +4,9 @@ from typing import Dict, Any, Optional, List
 from firebase_admin import firestore
 from app.services.firebase_service import db
 from app.services.chat import send_whatsapp_message_helper
+from app.database import AsyncSessionLocal
+from app.models.sql_models import Automation
+from sqlalchemy.future import select
 
 logger = logging.getLogger(__name__)
 
@@ -18,27 +21,26 @@ async def execute_automation(
     Evaluates incoming WhatsApp message against active automations and sessions.
     Returns True if an automation handled the message, False otherwise.
     """
-    if not db:
-        logger.debug("Firestore not initialized, skipping automation execution.")
-        return False
-
     if not client_id or not contact_id or not phone_number:
         return False
 
     cleaned_text = (message_text or "").strip()
 
     try:
-        session_ref = (
-            db.collection("automation_sessions")
-            .document(client_id)
-            .collection("data")
-            .document(contact_id)
-        )
-        session_doc = session_ref.get()
-        session_data = session_doc.to_dict() if session_doc.exists else None
+        session_ref = None
+        session_data = None
+        if db:
+            session_ref = (
+                db.collection("automation_sessions")
+                .document(client_id)
+                .collection("data")
+                .document(contact_id)
+            )
+            session_doc = session_ref.get()
+            session_data = session_doc.to_dict() if session_doc.exists else None
 
         # 1. Check if user is currently in an active session
-        if session_data and session_data.get("active", False):
+        if session_data and session_data.get("active", False) and session_ref:
             handled = await continue_automation_session(
                 client_id=client_id,
                 contact_id=contact_id,
@@ -50,23 +52,30 @@ async def execute_automation(
             )
             return handled
 
-        # 2. Check if incoming message triggers a new automation
+        # 2. Check if incoming message triggers a new automation from PostgreSQL
         if message_type == "text" and cleaned_text:
             text_lower = cleaned_text.lower()
             
-            # Query active automations for this client
-            automations_ref = (
-                db.collection("automations")
-                .document(client_id)
-                .collection("data")
-            )
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(Automation).where(
+                        Automation.client_id == client_id,
+                        Automation.status == "Active"
+                    )
+                )
+                active_flows = result.scalars().all()
             
-            # Query where status == 'Active'
-            active_docs = automations_ref.where("status", "==", "Active").stream()
-            
-            for doc in active_docs:
-                flow = doc.to_dict() or {}
-                trigger_keywords = flow.get("trigger_keywords", []) or []
+            for a in active_flows:
+                flow = {
+                    "id": a.id,
+                    "flowName": a.flow_name,
+                    "name": a.flow_name,
+                    "status": a.status,
+                    "nodes": a.nodes or {},
+                    "trigger_keywords": a.trigger_keywords or [],
+                    "start_node": a.start_node,
+                }
+                trigger_keywords = a.trigger_keywords or []
                 
                 # Check keyword match (exact or contained)
                 matched = False
@@ -77,14 +86,21 @@ async def execute_automation(
                         break
 
                 if matched:
-                    logger.info(f"🎯 Automation triggered: '{flow.get('flowName')}' (ID: {flow.get('id', doc.id)}) for contact {contact_id}")
+                    logger.info(f"🎯 Automation triggered from DB: '{a.flow_name}' (ID: {a.id}) for contact {contact_id}")
+                    if not session_ref and db:
+                        session_ref = (
+                            db.collection("automation_sessions")
+                            .document(client_id)
+                            .collection("data")
+                            .document(contact_id)
+                        )
                     await start_automation_flow(
                         client_id=client_id,
                         contact_id=contact_id,
                         phone_number=phone_number,
                         session_ref=session_ref,
                         flow=flow,
-                        flow_id=flow.get("id", doc.id),
+                        flow_id=a.id,
                         user_input=cleaned_text
                     )
                     return True

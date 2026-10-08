@@ -108,8 +108,14 @@ async def create_media_id(secrets, file_content, file_name, mime_type):
             response.raise_for_status()
             return response.json().get("id")
             
+    except httpx.HTTPStatusError as e:
+        err_msg = f"Meta API error ({e.response.status_code}): {e.response.text}"
+        logger.error(f"Error in createMediaId: {err_msg}")
+        raise Exception(err_msg)
     except Exception as e:
         logger.error(f"Error in createMediaId: {e}")
+        if hasattr(e, 'response') and e.response:
+            logger.error(f"Response: {e.response.text}")
         raise e
 
 async def get_whatsapp_business_profile(client_id):

@@ -54,4 +54,9 @@ async def init_db():
         await conn.execute(text("ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS retry_campaign_status VARCHAR;"))
         await conn.execute(text("ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS card_variables JSON;"))
         await conn.execute(text("ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS card_attachment_ids JSON;"))
+        await conn.execute(text("ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS admin_id VARCHAR;"))
 
+        # Ensure new columns exist on templates table
+        await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS user_category VARCHAR;"))
+        await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS cards JSON;"))
+        await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))

@@ -511,6 +511,7 @@ class BroadcastCreateRequest(BaseModel):
     language: Optional[str] = None
     type: Optional[str] = None # Text, Media, Interactive
     adminName: Optional[str] = None
+    adminId: Optional[str] = None
     attachmentId: Optional[str] = None
     audienceType: Optional[int] = None
     contacts: Optional[List[Dict[str, Any]]] = None # List of {mobileNo, bodyVariables}
@@ -524,6 +525,7 @@ class BroadcastCreateRequest(BaseModel):
     cardVariables: Optional[List[Any]] = None
     cardAttachmentIds: Optional[List[str]] = None
     contactIds: Optional[List[str]] = None
+    enableRetry: Optional[bool] = False
     status: Optional[str] = None
 
 class AnalyticsRequest(BaseModel):

@@ -171,6 +171,9 @@ class Template(Base):
     status = Column(String)
     language = Column(String)
     reason = Column(JSON)
+    user_category = Column(String)
+    cards = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     type = Column(String) # Text & Media, etc
 
@@ -184,6 +187,7 @@ class Broadcast(Base):
     
     template_id = Column(String)
     admin_name = Column(String)
+    admin_id = Column(String)
     attachment_id = Column(String)
     
     audience_type = Column(Integer)
@@ -325,3 +329,21 @@ class Charge(Base):
     price = Column(Float)
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Automation(Base):
+    __tablename__ = "automations"
+
+    id = Column(String, primary_key=True, index=True)
+    client_id = Column(String, ForeignKey("clients.client_id"), index=True)
+    flow_name = Column(String, nullable=False)
+    status = Column(String, default="Active")
+    ui_flow = Column(Text)  # JSON string of UI graph
+    nodes = Column(JSON)    # Node dictionary/hierarchy
+    trigger_keywords = Column(JSON, default=list)
+    start_node = Column(String)
+    created_by = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+    client = relationship("Client")
+
