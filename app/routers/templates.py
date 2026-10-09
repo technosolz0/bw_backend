@@ -14,7 +14,7 @@ from sqlalchemy.future import select
 import logging
 import json
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.schemas import TemplateCreate, DeleteTemplateRequest
 from fastapi import Query, Body
 
