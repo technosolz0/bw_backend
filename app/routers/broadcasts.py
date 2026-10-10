@@ -34,13 +34,29 @@ async def send_template_message_endpoint(body: SendTemplateMessageRequest):
         
         # If headerVariables is provided (matching broadcastHandler.js format)
         if body.headerVariables:
-            h_type = body.headerVariables.get("type")
-            h_data = body.headerVariables.get("data", {})
-            if h_type == "text":
-                header_text = h_data.get("text")
+            h_type = str(body.headerVariables.get("type") or "").strip().lower()
+            h_data = body.headerVariables.get("data")
+            if isinstance(h_data, dict):
+                if h_type == "text":
+                    header_text = h_data.get("text")
+                else:
+                    media_id = h_data.get("mediaId") or h_data.get("media_id") or h_data.get("link") or h_data.get("url")
+                    if h_type:
+                        media_type = h_type
+            elif isinstance(h_data, str):
+                if h_type == "text":
+                    header_text = h_data
+                else:
+                    media_id = h_data
+                    if h_type:
+                        media_type = h_type
             else:
-                media_id = h_data.get("mediaId")
-                media_type = h_type
+                if h_type == "text":
+                    header_text = body.headerVariables.get("text")
+                else:
+                    media_id = body.headerVariables.get("mediaId") or body.headerVariables.get("media_id") or body.headerVariables.get("link") or body.headerVariables.get("url")
+                    if h_type:
+                        media_type = h_type
         
         if body.buttonVariables:
             button_payloads = [b.get("payload") for b in body.buttonVariables if b.get("payload")]

@@ -72,17 +72,69 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                     header_vars = payload.get("headerVariables", {})
                     button_vars = payload.get("buttonVariables", [])
                     
+                    # 1. Pre-fetch Template record for header requirements & later persistence
+                    if not hasattr(process_broadcast, "_template_cache"):
+                        process_broadcast._template_cache = {}
+                    
+                    t_key = f"{client_id}_{template_name}"
+                    if t_key not in process_broadcast._template_cache:
+                        # Search by name and clientId
+                        t_res = await session.execute(select(Template).where(Template.name == template_name, Template.client_id == client_id))
+                        process_broadcast._template_cache[t_key] = t_res.scalars().first()
+                    
+                    template_record = process_broadcast._template_cache[t_key]
+
                     media_id = None
                     media_type = "image"
                     header_text = None
                     
                     if header_vars:
-                        h_type = header_vars.get("type")
-                        if h_type == "text":
-                            header_text = header_vars.get("data", {}).get("text")
+                        h_type = str(header_vars.get("type") or "").strip().lower()
+                        h_data = header_vars.get("data")
+                        if isinstance(h_data, dict):
+                            if h_type == "text":
+                                header_text = h_data.get("text")
+                            else:
+                                media_id = h_data.get("mediaId") or h_data.get("media_id") or h_data.get("link") or h_data.get("url")
+                                if h_type:
+                                    media_type = h_type
+                        elif isinstance(h_data, str):
+                            if h_type == "text":
+                                header_text = h_data
+                            else:
+                                media_id = h_data
+                                if h_type:
+                                    media_type = h_type
                         else:
-                            media_id = header_vars.get("data", {}).get("mediaId")
-                            media_type = h_type or "image"
+                            if h_type == "text":
+                                header_text = header_vars.get("text")
+                            else:
+                                media_id = header_vars.get("mediaId") or header_vars.get("media_id") or header_vars.get("link") or header_vars.get("url")
+                                if h_type:
+                                    media_type = h_type
+                    
+                    # Fallback to broadcast level media_id or payload mediaId
+                    if not media_id and broadcast.media_id:
+                        media_id = broadcast.media_id
+                    if not media_id and payload.get("mediaId"):
+                        media_id = payload.get("mediaId")
+                    
+                    # If template has header format, align media_type and fallback to example handle if missing
+                    if template_record and template_record.components:
+                        for comp in template_record.components:
+                            if comp.get("type") == "HEADER":
+                                h_fmt = str(comp.get("format") or "").upper()
+                                if h_fmt in ["IMAGE", "VIDEO", "DOCUMENT"]:
+                                    media_type = h_fmt.lower()
+                                    if not media_id:
+                                        ex_handles = comp.get("example", {}).get("header_handle", [])
+                                        if ex_handles and isinstance(ex_handles, list) and ex_handles[0]:
+                                            media_id = ex_handles[0]
+                                            logger.info(f"Using template example header_handle for {mobile_no}: {media_id}")
+                                elif h_fmt == "TEXT" and not header_text:
+                                    ex_texts = comp.get("example", {}).get("header_text", [])
+                                    if ex_texts and isinstance(ex_texts, list) and ex_texts[0]:
+                                        header_text = ex_texts[0]
                     
                     button_payloads = [b.get("payload") for b in button_vars] if button_vars else None
 
@@ -110,18 +162,6 @@ async def process_broadcast(client_id: str, broadcast_id: str):
                     
                     # 📊 Persist to Message Table & Sync to Firestore
                     try:
-                        # 1. Get Template record for create_template_chat_message
-                        if not hasattr(process_broadcast, "_template_cache"):
-                            process_broadcast._template_cache = {}
-                        
-                        t_key = f"{client_id}_{template_name}"
-                        if t_key not in process_broadcast._template_cache:
-                            # Search by name and clientId
-                            t_res = await session.execute(select(Template).where(Template.name == template_name, Template.client_id == client_id))
-                            process_broadcast._template_cache[t_key] = t_res.scalars().first()
-                        
-                        template_record = process_broadcast._template_cache[t_key]
-                        
                         if template_record:
                             # 2. Use helper to find/create Contact and Chat
                             effective_chat_id, chat_name, _ = await ensure_contact_and_chat(
@@ -330,6 +370,15 @@ async def create_broadcast_record(client_id: str, data: dict):
 
         # Add messages
         contacts = data.get("contacts", []) or []
+        default_header_vars = data.get("headerVariables")
+        if not default_header_vars and data.get("mediaId"):
+            default_header_vars = {
+                "type": "image",
+                "data": {
+                    "mediaId": data.get("mediaId")
+                }
+            }
+
         for c in contacts:
             msg_id = str(uuid.uuid4())
             # Construct payload for BroadcastMessage
@@ -338,9 +387,9 @@ async def create_broadcast_record(client_id: str, data: dict):
                 "language": language or "en_US",
                 "type": data.get("type"),
                 "bodyVariables": c.get("bodyVariables"),
-                "headerVariables": data.get("headerVariables"),
+                "headerVariables": c.get("headerVariables") or default_header_vars,
                 "mobileNo": c.get("mobileNo"),
-                "buttonVariables": data.get("buttonVariables")
+                "buttonVariables": c.get("buttonVariables") or data.get("buttonVariables")
             }
             
             b_msg = BroadcastMessage(

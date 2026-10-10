@@ -403,7 +403,8 @@ async def send_template_message(
     phone_number: str = None,
     header_text: str = None,
     media_type: str = "image",
-    button_payloads: list = None
+    button_payloads: list = None,
+    media_url: str = None
 ):
     """
     Sends a WhatsApp template message using the Meta Cloud API.
@@ -418,22 +419,39 @@ async def send_template_message(
         
         # 1. Header Component
         header_params = []
-        if media_id:
-            m_type = media_type.lower()
+        target_media_url = media_url or (media_id if isinstance(media_id, str) and (media_id.startswith("http://") or media_id.startswith("https://")) else None)
+        target_media_id = media_id if (media_id and target_media_url != media_id) else None
+
+        if target_media_url:
+            m_type = (media_type or "image").lower()
+            media_obj = {"link": target_media_url}
+            if m_type == "document" and header_text:
+                media_obj["filename"] = str(header_text)
             header_params.append({
                 "type": m_type,
-                m_type: {
-                    "id": media_id
-                }
+                m_type: media_obj
             })
-            # For documents, header_text might be used as the filename
+        elif target_media_id:
+            m_type = (media_type or "image").lower()
+            media_obj = {"id": str(target_media_id)}
             if m_type == "document" and header_text:
-                 header_params[0][m_type]["filename"] = header_text
-        elif header_text:
+                media_obj["filename"] = str(header_text)
             header_params.append({
-                "type": "text",
-                "text": header_text
+                "type": m_type,
+                m_type: media_obj
             })
+        elif header_text:
+            if isinstance(header_text, list):
+                for ht in header_text:
+                    header_params.append({
+                        "type": "text",
+                        "text": str(ht)
+                    })
+            else:
+                header_params.append({
+                    "type": "text",
+                    "text": str(header_text)
+                })
             
         if header_params:
             components.append({
