@@ -310,12 +310,13 @@ async def handle_chat_message(client_id, value):
                 
                 # Automation Logic
                 automation_handled = False
+                target_phone = from_phone or full_phone_number or phone_number
                 try:
                     from app.services.automation_service import execute_automation
                     automation_handled = await execute_automation(
                         client_id=actual_client_id,
                         contact_id=contact_id,
-                        phone_number=phone_number,
+                        phone_number=target_phone,
                         message_text=message_text,
                         message_type=message_type
                     )
@@ -339,7 +340,7 @@ async def handle_chat_message(client_id, value):
                             )
                             await send_whatsapp_message_helper({
                                 "clientId": actual_client_id,
-                                "phoneNumber": phone_number,
+                                "phoneNumber": target_phone,
                                 "message": ai_response,
                                 "chatId": contact_id,
                                 "messageType": "text"
@@ -350,7 +351,7 @@ async def handle_chat_message(client_id, value):
                     else:
                         await send_whatsapp_message_helper({
                             "clientId": actual_client_id,
-                            "phoneNumber": phone_number,
+                            "phoneNumber": target_phone,
                             "message": "Sorry, could not understand your request. Try again later.",
                             "chatId": contact_id,
                             "messageType": "text"

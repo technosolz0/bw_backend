@@ -135,6 +135,29 @@ async def save_automation(payload: Dict[str, Any] = Body(...)):
                 session.add(new_auto)
             await session.commit()
 
+        # Sync to Firestore so both PostgreSQL and Firestore have active automations
+        from app.services.firebase_service import db
+        from firebase_admin import firestore
+        if db:
+            try:
+                fs_data = {
+                    "id": doc_id,
+                    "clientId": client_id,
+                    "flowName": flow_name,
+                    "name": flow_name,
+                    "status": status,
+                    "ui_flow": ui_flow,
+                    "nodes": nodes,
+                    "trigger_keywords": [str(k).lower().strip() for k in trigger_keywords if str(k).strip()],
+                    "start_node": start_node,
+                    "createdBy": created_by,
+                    "updatedAt": firestore.SERVER_TIMESTAMP,
+                }
+                db.collection("automations").document(client_id).collection("data").document(doc_id).set(fs_data, merge=True)
+                logger.info(f"✅ Automation {doc_id} synced to Firestore for client {client_id}")
+            except Exception as fe:
+                logger.error(f"Error syncing automation to Firestore: {fe}")
+
         return {"success": True, "id": doc_id, "message": "Automation saved successfully"}
     except Exception as e:
         logger.error(f"Error saving automation: {e}", exc_info=True)
@@ -142,7 +165,7 @@ async def save_automation(payload: Dict[str, Any] = Body(...)):
 
 @router.delete("/{automation_id}")
 async def delete_automation(automation_id: str, client_id: str = Query(...)):
-    """Delete an automation flow from PostgreSQL."""
+    """Delete an automation flow from PostgreSQL and Firestore."""
     async with AsyncSessionLocal() as session:
         try:
             result = await session.execute(
@@ -155,6 +178,15 @@ async def delete_automation(automation_id: str, client_id: str = Query(...)):
             if existing:
                 await session.delete(existing)
                 await session.commit()
+
+            from app.services.firebase_service import db
+            if db:
+                try:
+                    db.collection("automations").document(client_id).collection("data").document(automation_id).delete()
+                    logger.info(f"✅ Automation {automation_id} deleted from Firestore")
+                except Exception as fe:
+                    logger.error(f"Error deleting automation from Firestore: {fe}")
+
             return {"success": True, "message": "Automation deleted successfully"}
         except Exception as e:
             logger.error(f"Error deleting automation: {e}", exc_info=True)
@@ -166,7 +198,7 @@ async def toggle_automation_status(
     client_id: str = Query(...),
     status: Optional[str] = Body(None)
 ):
-    """Toggle automation status between Active and Inactive in PostgreSQL."""
+    """Toggle automation status between Active and Inactive in PostgreSQL and Firestore."""
     async with AsyncSessionLocal() as session:
         try:
             result = await session.execute(
@@ -185,6 +217,19 @@ async def toggle_automation_status(
             existing.status = new_status
             existing.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
+
+            from app.services.firebase_service import db
+            from firebase_admin import firestore
+            if db:
+                try:
+                    db.collection("automations").document(client_id).collection("data").document(automation_id).update({
+                        "status": new_status,
+                        "updatedAt": firestore.SERVER_TIMESTAMP
+                    })
+                    logger.info(f"✅ Automation {automation_id} status updated to {new_status} in Firestore")
+                except Exception as fe:
+                    logger.error(f"Error updating automation status in Firestore: {fe}")
+
             return {"success": True, "status": new_status}
         except HTTPException:
             raise

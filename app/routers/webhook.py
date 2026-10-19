@@ -128,3 +128,98 @@ async def webhook_event(request: Request, body: MetaWebhookPayload = Body(None))
     except Exception as e:
         logger.error(f"WEBHOOK ERROR: {e}")
         return Response(status_code=200) # Always return 200 to Meta to avoid retries on logic error
+
+
+@router.post("/handleInboundMessage")
+async def handle_inbound_message(request: Request):
+    """
+    Handles inbound messages from PubSub or direct webhook calls, mirroring Google Cloud Function handleInboundMessage.
+    Accepts:
+    1. Google Cloud PubSub push payloads: { "message": { "data": "base64..." } }
+    2. Direct JSON payloads: { "message": { ... }, "clientId": "...", "chatId": "..." }
+    3. Asynchronous node processing: { "clientId": "...", "from": "...", "chatId": "...", "automationId": "...", "nodeId": "..." }
+    """
+    try:
+        import base64
+        import json
+        from app.services.automation_service import (
+            execute_automation,
+            get_automation_flow,
+            traverse_nodes
+        )
+        from app.services.firebase_service import db
+
+        raw_body = await request.body()
+        if not raw_body:
+            return Response(status_code=200, content="Empty body")
+
+        body = await request.json()
+
+        # Handle PubSub push envelope
+        if isinstance(body, dict) and "message" in body and isinstance(body["message"], dict) and "data" in body["message"]:
+            try:
+                data_b64 = body["message"]["data"]
+                decoded_str = base64.b64decode(data_b64).decode("utf-8")
+                body = json.loads(decoded_str)
+            except Exception as pe:
+                logger.error(f"Failed to decode PubSub message data: {pe}")
+                return Response(status_code=200, content="Invalid PubSub payload")
+
+        # 1. Asynchronous node traversal step
+        if body.get("nodeId") and body.get("automationId"):
+            client_id = body.get("clientId")
+            from_phone = body.get("from")
+            chat_id = body.get("chatId")
+            automation_id = body.get("automationId")
+            node_id = body.get("nodeId")
+            visited = body.get("visited", [])
+
+            flow = await get_automation_flow(client_id, automation_id)
+            if flow:
+                session_ref = None
+                if db:
+                    session_ref = (
+                        db.collection("automation_sessions")
+                        .document(client_id)
+                        .collection("data")
+                        .document(chat_id)
+                    )
+                await traverse_nodes(
+                    client_id=client_id,
+                    contact_id=chat_id,
+                    phone_number=from_phone,
+                    session_ref=session_ref,
+                    flow=flow,
+                    current_node_id=node_id,
+                    user_input="",
+                    visited=visited
+                )
+            return Response(status_code=200, content="Node processed")
+
+        # 2. Standard inbound message handling
+        msg = body.get("message", {})
+        client_id = body.get("clientId")
+        chat_id = body.get("chatId")
+
+        from_phone = msg.get("from") or body.get("from")
+        msg_type = msg.get("type", "text")
+        text_body = ""
+        if msg_type == "text":
+            text_body = msg.get("text", {}).get("body", "") or body.get("text", "")
+
+        logger.info(f"handleInboundMessage received: client_id={client_id}, chat_id={chat_id}, from={from_phone}")
+
+        handled = await execute_automation(
+            client_id=client_id,
+            contact_id=chat_id,
+            phone_number=from_phone,
+            message_text=text_body,
+            message_type=msg_type
+        )
+
+        return Response(status_code=200, content=json.dumps({"success": True, "handled": handled}), media_type="application/json")
+
+    except Exception as e:
+        logger.error(f"Error in handleInboundMessage endpoint: {e}", exc_info=True)
+        return Response(status_code=200, content=f"Error: {e}")
+

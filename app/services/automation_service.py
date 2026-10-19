@@ -10,6 +10,131 @@ from sqlalchemy.future import select
 
 logger = logging.getLogger(__name__)
 
+
+async def get_automation_flow(client_id: str, flow_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetches automation flow definition by ID and client ID.
+    Checks PostgreSQL first, then falls back to Firestore if not found in PostgreSQL.
+    """
+    if not client_id or not flow_id:
+        return None
+
+    # 1. Query PostgreSQL
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Automation).where(
+                    Automation.id == str(flow_id),
+                    Automation.client_id == client_id
+                )
+            )
+            a = result.scalars().first()
+            if a:
+                return {
+                    "id": a.id,
+                    "flowName": a.flow_name,
+                    "name": a.flow_name,
+                    "status": a.status or "Active",
+                    "nodes": a.nodes or {},
+                    "trigger_keywords": a.trigger_keywords or [],
+                    "start_node": a.start_node,
+                    "stop_phrase": getattr(a, "stop_phrase", None) or "stop",
+                }
+    except Exception as e:
+        logger.error(f"Error fetching automation {flow_id} from PostgreSQL: {e}")
+
+    # 2. Fallback to Firestore
+    if db:
+        try:
+            flow_doc = (
+                db.collection("automations")
+                .document(client_id)
+                .collection("data")
+                .document(str(flow_id))
+                .get()
+            )
+            if flow_doc.exists:
+                data = flow_doc.to_dict() or {}
+                data["id"] = flow_doc.id
+                return data
+        except Exception as e:
+            logger.error(f"Error fetching automation {flow_id} from Firestore: {e}")
+
+    return None
+
+
+async def find_matching_flow(client_id: str, text: str) -> Optional[Dict[str, Any]]:
+    """
+    Finds an active automation flow triggered by the incoming text message.
+    Checks PostgreSQL active automations first, then queries Firestore.
+    """
+    if not client_id or not text:
+        return None
+
+    text_lower = text.strip().lower()
+
+    # 1. Check PostgreSQL
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Automation).where(
+                    Automation.client_id == client_id,
+                    Automation.status == "Active"
+                )
+            )
+            active_flows = result.scalars().all()
+
+        for a in active_flows:
+            trigger_keywords = a.trigger_keywords or []
+            matched = False
+            for kw in trigger_keywords:
+                kw_clean = str(kw).strip().lower()
+                if not kw_clean:
+                    continue
+                # Exact match or word match in text
+                if kw_clean == text_lower or kw_clean in text_lower.split():
+                    matched = True
+                    break
+
+            if matched:
+                logger.info(f"🎯 Automation triggered from PostgreSQL: '{a.flow_name}' (ID: {a.id})")
+                return {
+                    "id": a.id,
+                    "flowName": a.flow_name,
+                    "name": a.flow_name,
+                    "status": a.status or "Active",
+                    "nodes": a.nodes or {},
+                    "trigger_keywords": a.trigger_keywords or [],
+                    "start_node": a.start_node,
+                    "stop_phrase": getattr(a, "stop_phrase", None) or "stop",
+                }
+    except Exception as e:
+        logger.error(f"Error searching active automations in PostgreSQL: {e}")
+
+    # 2. Check Firestore (mirrors waba_test webhookHandler.js:2119)
+    if db and len(text_lower) <= 256:
+        try:
+            query = (
+                db.collection("automations")
+                .document(client_id)
+                .collection("data")
+                .where("trigger_keywords", "array_contains", text_lower)
+                .limit(1)
+            )
+            docs = query.get()
+            for doc in docs:
+                data = doc.to_dict() or {}
+                status = (data.get("status") or "Active").lower()
+                if status == "active":
+                    data["id"] = doc.id
+                    logger.info(f"🎯 Automation triggered from Firestore: '{data.get('flowName') or data.get('name')}' (ID: {doc.id})")
+                    return data
+        except Exception as e:
+            logger.error(f"Error querying trigger_keywords from Firestore: {e}")
+
+    return None
+
+
 async def execute_automation(
     client_id: str,
     contact_id: str,
@@ -20,6 +145,7 @@ async def execute_automation(
     """
     Evaluates incoming WhatsApp message against active automations and sessions.
     Returns True if an automation handled the message, False otherwise.
+    Mirrors handleInboundMessage from waba_test/functions/webhookHandler.js.
     """
     if not client_id or not contact_id or not phone_number:
         return False
@@ -52,58 +178,27 @@ async def execute_automation(
             )
             return handled
 
-        # 2. Check if incoming message triggers a new automation from PostgreSQL
+        # 2. Check if incoming message triggers a new automation
         if message_type == "text" and cleaned_text:
-            text_lower = cleaned_text.lower()
-            
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(Automation).where(
-                        Automation.client_id == client_id,
-                        Automation.status == "Active"
+            matched_flow = await find_matching_flow(client_id, cleaned_text)
+            if matched_flow:
+                if not session_ref and db:
+                    session_ref = (
+                        db.collection("automation_sessions")
+                        .document(client_id)
+                        .collection("data")
+                        .document(contact_id)
                     )
+                await start_automation_flow(
+                    client_id=client_id,
+                    contact_id=contact_id,
+                    phone_number=phone_number,
+                    session_ref=session_ref,
+                    flow=matched_flow,
+                    flow_id=matched_flow["id"],
+                    user_input=cleaned_text
                 )
-                active_flows = result.scalars().all()
-            
-            for a in active_flows:
-                flow = {
-                    "id": a.id,
-                    "flowName": a.flow_name,
-                    "name": a.flow_name,
-                    "status": a.status,
-                    "nodes": a.nodes or {},
-                    "trigger_keywords": a.trigger_keywords or [],
-                    "start_node": a.start_node,
-                }
-                trigger_keywords = a.trigger_keywords or []
-                
-                # Check keyword match (exact or contained)
-                matched = False
-                for kw in trigger_keywords:
-                    kw_clean = str(kw).strip().lower()
-                    if kw_clean and (kw_clean == text_lower or kw_clean in text_lower.split()):
-                        matched = True
-                        break
-
-                if matched:
-                    logger.info(f"🎯 Automation triggered from DB: '{a.flow_name}' (ID: {a.id}) for contact {contact_id}")
-                    if not session_ref and db:
-                        session_ref = (
-                            db.collection("automation_sessions")
-                            .document(client_id)
-                            .collection("data")
-                            .document(contact_id)
-                        )
-                    await start_automation_flow(
-                        client_id=client_id,
-                        contact_id=contact_id,
-                        phone_number=phone_number,
-                        session_ref=session_ref,
-                        flow=flow,
-                        flow_id=a.id,
-                        user_input=cleaned_text
-                    )
-                    return True
+                return True
 
         return False
 
@@ -121,7 +216,10 @@ async def start_automation_flow(
     flow_id: str,
     user_input: str
 ):
-    """Initializes a new session and begins node traversal."""
+    """
+    Initializes a new session and begins node traversal.
+    Mirrors startFlow from waba_test/functions/webhookHandler.js.
+    """
     start_node_id = flow.get("start_node")
     if not start_node_id:
         logger.warning(f"Automation {flow_id} has no start_node configured.")
@@ -132,10 +230,12 @@ async def start_automation_flow(
         "current_node": start_node_id,
         "active": True,
         "variables": {"initial_input": user_input},
-        "updatedAt": firestore.SERVER_TIMESTAMP,
-        "createdAt": firestore.SERVER_TIMESTAMP,
+        "timestamp": firestore.SERVER_TIMESTAMP if db else None,
+        "updatedAt": firestore.SERVER_TIMESTAMP if db else None,
+        "createdAt": firestore.SERVER_TIMESTAMP if db else None,
     }
-    session_ref.set(session_data, merge=True)
+    if session_ref:
+        session_ref.set(session_data, merge=True)
 
     await traverse_nodes(
         client_id=client_id,
@@ -158,22 +258,38 @@ async def continue_automation_session(
     user_input: str,
     message_type: str
 ) -> bool:
-    """Resumes an active automation session based on user input."""
+    """
+    Resumes an active automation session based on user input.
+    Mirrors continueFlow from waba_test/functions/webhookHandler.js.
+    """
     flow_id = session_data.get("automation_id")
     current_node_id = session_data.get("current_node")
 
     if not flow_id or not current_node_id:
-        session_ref.update({"active": False})
+        if session_ref:
+            session_ref.update({"active": False})
         return False
 
-    # Check for cancellation / stop keywords
-    if user_input.lower() in ["stop", "cancel", "exit", "quit", "end"]:
+    # Fetch flow definition (PostgreSQL or Firestore)
+    flow = await get_automation_flow(client_id, flow_id)
+    if not flow:
+        logger.warning(f"Automation flow {flow_id} not found in database or Firestore.")
+        if session_ref:
+            session_ref.update({"active": False})
+        return False
+
+    # Check for stop phrase / cancellation keywords
+    stop_phrase = str(flow.get("stop_phrase") or "").strip().lower()
+    user_lower = user_input.strip().lower()
+
+    if (stop_phrase and user_lower == stop_phrase) or user_lower in ["stop", "cancel", "exit", "quit", "end"]:
         logger.info(f"User requested to stop automation {flow_id}")
-        session_ref.update({
-            "active": False,
-            "stopped_by_user": True,
-            "updatedAt": firestore.SERVER_TIMESTAMP
-        })
+        if session_ref:
+            session_ref.update({
+                "active": False,
+                "stopped_by_user": True,
+                "updatedAt": firestore.SERVER_TIMESTAMP
+            })
         await send_whatsapp_message_helper({
             "clientId": client_id,
             "phoneNumber": phone_number,
@@ -183,54 +299,52 @@ async def continue_automation_session(
         })
         return True
 
-    # Fetch flow definition
-    flow_doc = (
-        db.collection("automations")
-        .document(client_id)
-        .collection("data")
-        .document(flow_id)
-        .get()
-    )
-
-    if not flow_doc.exists:
-        logger.warning(f"Automation flow {flow_id} not found in Firestore.")
-        session_ref.update({"active": False})
-        return False
-
-    flow = flow_doc.to_dict() or {}
     nodes = flow.get("nodes", {}) or {}
     current_node = nodes.get(current_node_id)
 
     if not current_node:
         logger.warning(f"Node {current_node_id} not found in flow {flow_id}.")
-        session_ref.update({"active": False})
+        if session_ref:
+            session_ref.update({"active": False})
         return False
 
     next_node_id = None
     node_type = current_node.get("type", "")
 
-    # Handle Question / Menu response
-    if node_type in ["menu", "question"]:
-        options = current_node.get("options", {}) or {}
-        user_input_lower = user_input.lower().strip()
+    # 1. wait_for_message node: Advance to next_node
+    if node_type == "wait_for_message":
+        next_node_id = current_node.get("next_node")
 
-        # Match option key or label
-        for opt_label, target_id in options.items():
-            opt_label_lower = str(opt_label).lower().strip()
-            if user_input_lower == opt_label_lower or user_input_lower in opt_label_lower:
-                next_node_id = target_id
-                break
+    # 2. Question / Menu response
+    elif node_type in ["menu", "question"]:
+        options = current_node.get("options", {}) or {}
+        user_input_clean = user_input.strip()
+
+        # Match by option index (e.g. user typed '1', '2')
+        if user_input_clean.isdigit():
+            idx = int(user_input_clean) - 1
+            opt_keys = list(options.keys())
+            if 0 <= idx < len(opt_keys):
+                next_node_id = options[opt_keys[idx]]
+
+        # Match option key or label string
+        if not next_node_id:
+            for opt_label, target_id in options.items():
+                opt_label_lower = str(opt_label).lower().strip()
+                if user_lower == opt_label_lower or user_lower in opt_label_lower:
+                    next_node_id = target_id
+                    break
 
         # Fallback to direct next_node if options didn't match or were empty
         if not next_node_id:
             next_node_id = current_node.get("next_node")
 
-    # Handle Condition node directly following user response
+    # 3. Condition node directly evaluated on user input
     elif node_type == "condition":
         next_node_id = evaluate_condition(current_node, user_input)
 
+    # 4. Standard continuation
     else:
-        # Standard continuation to next_node
         next_node_id = current_node.get("next_node")
 
     if next_node_id:
@@ -246,8 +360,9 @@ async def continue_automation_session(
         )
         return True
     else:
-        # No further nodes, finish session
-        session_ref.update({"active": False, "updatedAt": firestore.SERVER_TIMESTAMP})
+        # No further nodes, complete session
+        if session_ref:
+            session_ref.update({"active": False, "updatedAt": firestore.SERVER_TIMESTAMP})
         return True
 
 
@@ -291,13 +406,17 @@ async def traverse_nodes(
     user_input: str,
     visited: List[str]
 ):
-    """Recursively traverses and executes flow nodes."""
+    """
+    Recursively traverses and executes flow nodes.
+    Mirrors processNodeAsync from waba_test/functions/webhookHandler.js.
+    """
     nodes = flow.get("nodes", {}) or {}
 
     while current_node_id:
         if current_node_id in visited:
             logger.error(f"Cycle detected in automation traversal at node {current_node_id}")
-            session_ref.update({"active": False})
+            if session_ref:
+                session_ref.update({"active": False})
             break
 
         visited.append(current_node_id)
@@ -305,7 +424,8 @@ async def traverse_nodes(
 
         if not current_node:
             logger.warning(f"Node {current_node_id} does not exist in flow.")
-            session_ref.update({"active": False})
+            if session_ref:
+                session_ref.update({"active": False})
             break
 
         node_type = current_node.get("type", "message")
@@ -314,39 +434,64 @@ async def traverse_nodes(
         # 1. MESSAGE / TEXT_FIELD
         if node_type in ["message", "text_field"]:
             if content:
-                await send_whatsapp_message_helper({
+                msg_result = await send_whatsapp_message_helper({
                     "clientId": client_id,
                     "phoneNumber": phone_number,
                     "message": content,
                     "chatId": contact_id,
                     "messageType": "text"
                 })
+                if not msg_result or not msg_result.get("success"):
+                    fail_msg = msg_result.get("message") if msg_result else "Failed to send message"
+                    logger.warning(f"Automation halted for {contact_id} at node {current_node_id}: {fail_msg}")
+                    if session_ref:
+                        session_ref.update({
+                            "active": False,
+                            "current_node": current_node_id,
+                            "failureReason": fail_msg,
+                            "updatedAt": firestore.SERVER_TIMESTAMP
+                        })
+                    break
+
                 # Small pause to guarantee message delivery ordering
                 await asyncio.sleep(0.3)
 
             current_node_id = current_node.get("next_node")
-            session_ref.update({
-                "current_node": current_node_id or "",
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id or "",
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
 
-        # 2. CONDITION
+        # 2. WAIT_FOR_MESSAGE (Mirrors waba_test wait_for_message case)
+        elif node_type == "wait_for_message":
+            logger.info(f"Automation paused at wait_for_message node {current_node_id}.")
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id,
+                    "active": True,
+                    "state": "wait_for_message",
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
+            break
+
+        # 3. CONDITION
         elif node_type == "condition":
             next_target = evaluate_condition(current_node, user_input)
             current_node_id = next_target
-            session_ref.update({
-                "current_node": current_node_id or "",
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id or "",
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
 
-        # 3. ACTION
+        # 4. ACTION
         elif node_type == "action":
             action_type = current_node.get("action_type") or "assign_dept"
             action_value = current_node.get("action_value") or content
 
             logger.info(f"⚡ Executing action '{action_type}' with value '{action_value}' for contact {contact_id}")
             
-            # Action logic: e.g., if there's custom message or assignment
             if content and content != action_value:
                 await send_whatsapp_message_helper({
                     "clientId": client_id,
@@ -357,12 +502,13 @@ async def traverse_nodes(
                 })
 
             current_node_id = current_node.get("next_node")
-            session_ref.update({
-                "current_node": current_node_id or "",
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id or "",
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
 
-        # 4. QUESTION / MENU (Waits for user input)
+        # 5. QUESTION / MENU (Waits for user input)
         elif node_type in ["menu", "question"]:
             menu_text = content or "Please make a selection:"
             options = current_node.get("options", {}) or {}
@@ -383,33 +529,37 @@ async def traverse_nodes(
             })
 
             # Halt traversal: wait for user's next message
-            session_ref.update({
-                "current_node": current_node_id,
-                "state": "waiting_for_input",
-                "active": True,
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id,
+                    "state": "waiting_for_input",
+                    "active": True,
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
             logger.info(f"Automation paused at Question/Menu node {current_node_id}, waiting for response.")
             break
 
-        # 5. STOP
+        # 6. STOP
         elif node_type == "stop":
             logger.info(f"Automation reached Stop node {current_node_id}. Closing session.")
-            session_ref.update({
-                "current_node": current_node_id,
-                "active": False,
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id,
+                    "active": False,
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
             break
 
         else:
             logger.warning(f"Unknown node type: {node_type} at {current_node_id}")
             current_node_id = current_node.get("next_node")
-            session_ref.update({
-                "current_node": current_node_id or "",
-                "updatedAt": firestore.SERVER_TIMESTAMP
-            })
+            if session_ref:
+                session_ref.update({
+                    "current_node": current_node_id or "",
+                    "updatedAt": firestore.SERVER_TIMESTAMP
+                })
 
     # If reached the end of flow
-    if not current_node_id:
+    if not current_node_id and session_ref:
         session_ref.update({"active": False, "updatedAt": firestore.SERVER_TIMESTAMP})
+
